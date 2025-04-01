@@ -1,0 +1,10 @@
+# @package _global_
+defaults:
+  - /gateway: symphony
+  - _self_
+
+bot_name: CSP Bot
+cert: .symphony_cert
+key: .symphony_key
+
+# csp-bot-start --config-dir=example +bot=symphony

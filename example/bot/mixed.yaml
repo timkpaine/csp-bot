@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - /gateway: mixed
+  - _self_
+
+discord_bot_name: CSP Bot
+discord_token: .discord_token
+slack_bot_name: CSP Bot
+slack_app_token: .slack_app_token
+slack_bot_token: .slack_bot_token
+
+# csp-bot-start --config-dir=example +bot=mixed

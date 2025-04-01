@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  - /gateway: slack
+  - _self_
+
+bot_name: CSP Bot
+app_token: .slack_app_token
+bot_token: .slack_bot_token
+
+gateway:
+  _target_: csp_bot.Gateway
+  modules:
+    - /modules/bot
+  commands:
+    - /commands/help
+    - _target_: hello.HelloCommandModel
+
+# csp-bot-start --config-dir=example +bot=slack

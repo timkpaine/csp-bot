@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - /gateway: discord
+  - _self_
+
+bot_name: CSP Bot
+token: .discord_token
+
+# csp-bot-start --config-dir=example +bot=discord

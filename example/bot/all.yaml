@@ -1,0 +1,15 @@
+# @package _global_
+defaults:
+  - /gateway: mixed
+  - _self_
+
+discord_bot_name: CSP Bot
+discord_token: .discord_token
+slack_bot_name: CSP Bot
+slack_app_token: .slack_app_token
+slack_bot_token: .slack_bot_token
+symphony_bot_name: CSP Bot
+symphony_cert: .symphony_cert
+symphony_key: .symphony_key
+
+# csp-bot-start --config-dir=example +bot=all

@@ -1,0 +1,32 @@
+# @package _global_
+defaults:
+  - _self_
+
+discord_bot_name: ???
+discord_token: ???
+slack_bot_name: ???
+slack_app_token: ???
+slack_bot_token: ???
+
+modules:
+  bot:
+    _target_: csp_bot.Bot
+    config:
+      _target_: csp_bot.BotConfig
+      discord_config:
+        _target_: csp_bot.DiscordConfig
+        bot_name: ${discord_bot_name}
+        adapter_config:
+          _target_: csp_bot.DiscordAdapterConfig
+          token: ${discord_token}
+      slack_config:
+        _target_: csp_bot.SlackConfig
+        bot_name: ${slack_bot_name}
+        adapter_config:
+          _target_: csp_bot.SlackAdapterConfig
+          app_token: ${slack_app_token}
+          bot_token: ${slack_bot_token}
+
+hydra:
+  job:
+    name: cubist-bot--discord[${discord_bot_name}]-slack[${slack_bot_name}]

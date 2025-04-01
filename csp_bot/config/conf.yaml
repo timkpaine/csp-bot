@@ -1,0 +1,30 @@
+defaults:
+  - commands@commands
+  - override hydra/job_logging: custom
+  - _self_
+
+start:
+  # Options passed to gateway.start function
+  realtime: True
+  block: True
+  show: False
+  rest: False
+  ui: False
+
+gateway:
+  _target_: csp_bot.Gateway
+  modules:
+    - /modules/bot
+  commands:
+    - /commands/help
+    - /commands/delaytest
+    - /commands/echo
+    - /commands/fun
+    - /commands/mets
+    - /commands/schedule
+    - /commands/thanks
+    - /commands/troutslap
+
+hydra:
+  run:
+    dir: outputs/${oc.env:HOSTNAME,localhost}_${hydra.job.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
