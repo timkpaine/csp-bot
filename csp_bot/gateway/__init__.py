@@ -1,1 +1,1 @@
-from .gateway import CubistBotGateway, Gateway, GatewayChannels, GatewayModule
+from .gateway import CspBotGateway, Gateway, GatewayChannels, GatewayModule

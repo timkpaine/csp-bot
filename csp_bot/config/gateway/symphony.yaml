@@ -21,4 +21,4 @@ modules:
 
 hydra:
   job:
-    name: cubist-bot-symphony[${bot_name}]
+    name: csp-bot-symphony[${bot_name}]

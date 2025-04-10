@@ -19,4 +19,4 @@ modules:
 
 hydra:
   job:
-    name: cubist-bot-discord[${bot_name}]
+    name: csp-bot-discord[${bot_name}]

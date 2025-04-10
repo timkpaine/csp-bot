@@ -60,7 +60,7 @@ modules:
 
 hydra:
   job:
-    name: cubist-bot-slack[${bot_name}]
+    name: csp-bot-slack[${bot_name}]
 ```
 
 The `???` show that these fields should be overridden in other configs, which is exactly what we do in our `example/slack.yaml`.

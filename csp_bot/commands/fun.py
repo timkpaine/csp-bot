@@ -37,9 +37,9 @@ class FunCommand(ReplyToOtherCommand):
         if not target:
             return
         if "icelandic" in command.args:
-            message = f'{author} consoles {" ".join(target)} with an icelandic folk saying: "{choice(ICELANDIC)}"'
+            message = f'{author} consoles {" ".join(target)} with an Icelandic folk saying: "{choice(ICELANDIC)}"'
         elif "german" in command.args:
-            message = f"{author} teaches {' '.join(target)} some german: {choice(GERMAN)}. Prost!"
+            message = f"{author} teaches {' '.join(target)} some German: {choice(GERMAN)}. Prost!"
         elif "cocktail" in command.args:
             venue = choice(DRINKING_ESTABLISHMENTS)
             cocktail = choice(COCKTAILS)
