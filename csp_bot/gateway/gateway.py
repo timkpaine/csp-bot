@@ -25,7 +25,7 @@ class GatewayChannels(GatewayChannelsBase):
     """Channel for webserver/graph admin. """
 
 
-class CubistBotGateway(BaseGateway):
+class CspBotGateway(BaseGateway):
     commands: List[BaseCommandModel] = []
 
     @root_validator(pre=True)
@@ -59,7 +59,7 @@ class CubistBotGateway(BaseGateway):
 
     @wraps(BaseGateway.start)
     def start(self, *args, **kwargs):
-        super(CubistBotGateway, self).start(*args, **kwargs)
+        super(CspBotGateway, self).start(*args, **kwargs)
 
 
-Gateway = CubistBotGateway
+Gateway = CspBotGateway

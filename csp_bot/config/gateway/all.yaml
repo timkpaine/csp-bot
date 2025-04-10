@@ -39,4 +39,4 @@ modules:
 
 hydra:
   job:
-    name: cubist-bot--discord[${discord_bot_name}]-slack[${slack_bot_name}]-symphony[${symphony_bot_name}]
+    name: csp-bot--discord[${discord_bot_name}]-slack[${slack_bot_name}]-symphony[${symphony_bot_name}]

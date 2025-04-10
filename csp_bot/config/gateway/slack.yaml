@@ -21,4 +21,4 @@ modules:
 
 hydra:
   job:
-    name: cubist-bot-slack[${bot_name}]
+    name: csp-bot-slack[${bot_name}]

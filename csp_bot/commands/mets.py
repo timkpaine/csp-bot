@@ -78,7 +78,7 @@ class MetsCommand(ReplyToOtherCommand):
         return "Mets Information"
 
     def help(self) -> str:
-        return "Information about the mets. Syntax: /mets [stats roster schedule standings]"
+        return "Information about the Mets. Syntax: /mets [stats roster schedule standings]"
 
     def execute(self, command: BotCommand) -> Optional[Message]:
         log.info(f"Mets command: {command}")
