@@ -68,7 +68,7 @@ We also see that the bot instance is configured with a `SlackConfig`.
 
 For each backend supported, this is just a wrapper around the backend adapter's configuration:
 
-- [Discord Adapter Config](https://github.com/timkpaine/csp-adapter-discord/wiki/Setup)
+- [Discord Adapter Config](https://github.com/csp-community/csp-adapter-discord/wiki/Setup)
 - [Slack Adapter Config](https://github.com/Point72/csp-adapter-slack/wiki/Setup)
 - [Symphony Adapter Config](https://github.com/Point72/csp-adapter-symphony/wiki/Setup)
 

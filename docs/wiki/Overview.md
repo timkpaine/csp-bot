@@ -131,11 +131,11 @@ csp-bot-start --config-dir=my_bot_config +bot=slack_with_hello
 
 ## Backend Feature Matrix
 
-| Backend  | Repo                                                                              | Official / Community Supported | Public Room | Private Room | User-iniated IM | Non user-initiated IM | Threads | Reactions | Attachments |
-| :------- | :-------------------------------------------------------------------------------- | :----------------------------- | :---------- | :----------- | :-------------- | :-------------------- | :------ | :-------- | :---------- |
-| Slack    | [point72/csp-adapter-slack](https://github.com/point72/csp-adapter-slack)         | Official                       | X           | X            | X               |                       | X       | X         |             |
-| Symphony | [point72/csp-adapter-symphony](https://github.com/point72/csp-adapter-symphony)   | Official                       | X           | X            | X               |                       |         |           |             |
-| Discord  | [timkpaine/csp-adapter-discord](https://github.com/timkpaine/csp-adapter-discord) | Community                      | X           | X            | X               |                       | X       | X         |             |
+| Backend  | Repo                                                                                      | Official / Community Supported | Public Room | Private Room | User-iniated IM | Non user-initiated IM | Threads | Reactions | Attachments |
+| :------- | :---------------------------------------------------------------------------------------- | :----------------------------- | :---------- | :----------- | :-------------- | :-------------------- | :------ | :-------- | :---------- |
+| Slack    | [point72/csp-adapter-slack](https://github.com/point72/csp-adapter-slack)                 | Official                       | X           | X            | X               |                       | X       | X         |             |
+| Symphony | [point72/csp-adapter-symphony](https://github.com/point72/csp-adapter-symphony)           | Official                       | X           | X            | X               |                       |         |           |             |
+| Discord  | [csp-community/csp-adapter-discord](https://github.com/csp-community/csp-adapter-discord) | Community                      | X           | X            | X               |                       | X       | X         |             |
 
 ## Response Formatting
 
