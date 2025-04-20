@@ -51,19 +51,34 @@ class CommandVariant(Enum):
 
 class Message(GatewayStruct):
     user: str
-    user_email: str  # email of the author, for mentions
-    user_id: str  # uid of the author, for mentions
-    tags: [str]  # list of user ids in message, for mentions
+    """username of the user, specific to the platform"""
+
+    user_email: str
+    """email of the author, for mentions"""
+
+    user_id: str
+    """uid of the author, for mentions, specific to the platform"""
+
+    tags: [str]
+    """list of user ids in message, for mentions"""
 
     msg: str
+    """plain text payload of the message"""
 
-    reaction: str  # emote, for backends that support emote reactions
-    thread: str  # thread id, for backends that support threads
+    reaction: str
+    """emote, for backends that support emote reactions"""
 
-    channel: str  # name of channel/room
-    backend: str  # TODO: Backend
+    thread: str
+    """thread id, for backends that support threads"""
 
-    raw: object  # raw message payload
+    channel: str
+    """name of channel/room"""
+
+    backend: str
+    """Backend, e.g. slack, symphony, discord"""
+
+    _raw: object
+    """raw message payload, private to avoid serialization"""
 
     @staticmethod
     def from_raw_message(adapter_type: str, msg: Union[BaseDiscordMessage, BaseSlackMessage, BaseSymphonyMessage]) -> "Message":
@@ -74,7 +89,7 @@ class Message(GatewayStruct):
         ret.tags = msg.tags if hasattr(msg, "tags") else []
         ret.msg = msg.msg if hasattr(msg, "msg") else ""
         ret.backend = adapter_type
-        ret.raw = msg
+        ret._raw = msg
         if adapter_type == "symphony":
             ret.channel = msg.room if msg.room != "DM" else msg.room_id
             # not supported

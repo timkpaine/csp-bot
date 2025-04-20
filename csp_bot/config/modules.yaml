@@ -1,0 +1,12 @@
+
+modules:
+  mount_rest:
+    _target_: csp_gateway.MountRestRoutes
+  mount_controls:
+    _target_: csp_gateway.MountControls
+  mount_channels_graph:
+    _target_: csp_gateway.MountChannelsGraph
+  mount_outputs:
+    _target_: csp_gateway.MountOutputsFolder
+  mount_api_key_middleware:
+    _target_: csp_gateway.MountAPIKeyMiddleware
