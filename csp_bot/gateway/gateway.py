@@ -3,14 +3,16 @@ from functools import wraps
 from typing import List
 
 from csp import ts
-from csp_gateway import Controls
-from csp_gateway.server.gateway import (
+from csp_gateway import (
+    Controls,
     Gateway as BaseGateway,
     GatewayChannels as GatewayChannelsBase,
     GatewayModule,
+    GatewaySettings as BaseGatewaySettings,
 )
-from pydantic import root_validator
+from pydantic import Field, root_validator
 
+from csp_bot import __version__
 from csp_bot.commands import BaseCommandModel
 from csp_bot.structs import BotCommand, Message
 
@@ -25,7 +27,15 @@ class GatewayChannels(GatewayChannelsBase):
     """Channel for webserver/graph admin. """
 
 
+class GatewaySettings(BaseGatewaySettings):
+    # Override from csp-gateway
+    TITLE: str = "CSP Bot"
+    DESCRIPTION: str = "# Welcome to CSP Bot API\nContains REST/Websocket interfaces to underlying CSP Gateway engine"
+    VERSION: str = __version__
+
+
 class CspBotGateway(BaseGateway):
+    settings: GatewaySettings = Field(default_factory=GatewaySettings)
     commands: List[BaseCommandModel] = []
 
     @root_validator(pre=True)
@@ -63,3 +73,4 @@ class CspBotGateway(BaseGateway):
 
 
 Gateway = CspBotGateway
+Settings = GatewaySettings

@@ -1,20 +1,29 @@
 defaults:
   - commands@commands
+  - modules@modules
   - override hydra/job_logging: custom
   - _self_
 
 start:
   # Options passed to gateway.start function
-  realtime: True
-  block: True
-  show: False
-  rest: False
-  ui: False
+  realtime: true
+  block: true
+  show: false
+  rest: true
+  ui: false
+
+authenticate: False
+port: 8000
 
 gateway:
   _target_: csp_bot.Gateway
   modules:
     - /modules/bot
+    - /modules/mount_rest
+    - /modules/mount_controls
+    - /modules/mount_channels_graph
+    - /modules/mount_outputs
+    - /modules/mount_api_key_middleware
   commands:
     - /commands/help
     - /commands/delaytest
@@ -24,6 +33,9 @@ gateway:
     - /commands/schedule
     - /commands/thanks
     - /commands/troutslap
+  settings:
+    PORT: ${port}
+    AUTHENTICATE: ${authenticate}
 
 hydra:
   run:

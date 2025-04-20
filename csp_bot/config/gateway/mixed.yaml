@@ -1,5 +1,6 @@
 # @package _global_
 defaults:
+  - /modules
   - _self_
 
 discord_bot_name: ???
