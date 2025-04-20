@@ -1,3 +1,4 @@
+from ..utils import mention_user
 from .base import (
     BaseCommand,
     BaseCommandModel,
@@ -7,12 +8,6 @@ from .base import (
     ReplyToAuthorCommand,
     ReplyToOtherCommand,
 )
-from .common import mention_user
-from .delaytest import DelayTestCommand, DelayTestCommandModel
 from .echo import EchoCommand, EchoCommandModel
-from .fun import FunCommand, FunCommandModel
 from .help import HelpCommand, HelpCommandModel
-from .mets import MetsCommand, MetsCommandModel
 from .schedule import ScheduleCommand, ScheduleCommandModel
-from .thanks import ThanksCommand, ThanksCommandModel
-from .trout import TroutSlapCommand, TroutSlapCommandModel

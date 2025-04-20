@@ -50,16 +50,14 @@ On most platforms, this means to interact with the bot means to tag the bot and 
 @CSP Bot /help
 ```
 
-| Name     | Command      | Description                                                                   |
-| :------- | :----------- | :---------------------------------------------------------------------------- |
-| Help     | `/help`      | Displays a list of all commands and their help text                           |
-| Echo     | `/echo`      | Echos text                                                                    |
-| Thanks   | `/thanks`    | Thanks another user with a gift                                               |
-| Slap     | `/troutslap` | Slaps another user with a wet fish                                            |
-| Mets     | `/mets`      | Displays information about the Mets, as an example of table formatting        |
-| Schedule | `/schedule`  | Schedules a command to be run repeatedly, as an example of command scheduling |
+| Name     | Command     | Description                                                                   |
+| :------- | :---------- | :---------------------------------------------------------------------------- |
+| Help     | `/help`     | Displays a list of all commands and their help text                           |
+| Echo     | `/echo`     | Echos text                                                                    |
+| Schedule | `/schedule` | Schedules a command to be run repeatedly, as an example of command scheduling |
 
 Commands can have their own extra arguments, and most commands can be redirected to another channel by appending `/channel <channel name>`.
+Community supported commands can be found at [csp-community/csp-bot-commands](https://github.com/csp-community/csp-bot-commands)
 
 ## Writing commands
 

@@ -10,7 +10,8 @@ from csp_bot.structs import BotCommand, Message
 from .base import BaseCommand, BaseCommandModel, ReplyCommand
 
 if TYPE_CHECKING:
-    from csp_bot.bot import Bot
+    from csp_bot import Bot
+
 log = logging.getLogger(__name__)
 
 

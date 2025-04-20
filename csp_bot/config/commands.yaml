@@ -1,23 +1,8 @@
 help:
   _target_: csp_bot.commands.HelpCommandModel
 
-delaytest:
-  _target_: csp_bot.commands.DelayTestCommandModel
-
 echo:
   _target_: csp_bot.commands.EchoCommandModel
 
-fun:
-  _target_: csp_bot.commands.FunCommandModel
-
-mets:
-  _target_: csp_bot.commands.MetsCommandModel
-
 schedule:
   _target_: csp_bot.commands.ScheduleCommandModel
-
-thanks:
-  _target_: csp_bot.commands.ThanksCommandModel
-
-troutslap:
-  _target_: csp_bot.commands.TroutSlapCommandModel
