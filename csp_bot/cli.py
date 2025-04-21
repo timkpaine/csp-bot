@@ -1,4 +1,4 @@
-import logging
+from logging import getLogger
 from pprint import pprint
 
 import csp_gateway
@@ -8,7 +8,7 @@ from csp_gateway import Gateway
 
 from csp_bot import __version__
 
-log = logging.getLogger(__name__)
+log = getLogger(__name__)
 
 __all__ = (
     "load",

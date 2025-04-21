@@ -28,6 +28,7 @@ gateway:
     - /commands/help
     - /commands/echo
     - /commands/schedule
+    - /commands/status
   settings:
     PORT: ${port}
     AUTHENTICATE: ${authenticate}
