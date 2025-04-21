@@ -12,12 +12,17 @@ import csp
 from bs4 import BeautifulSoup, Tag
 from croniter import croniter
 from csp import Outputs, ts
-from csp_adapter_discord import DiscordAdapterManager, DiscordMessage as RawDiscordMessage
-from csp_adapter_slack import SlackAdapterManager, SlackMessage as RawSlackMessage
-from csp_adapter_symphony import SymphonyAdapter, SymphonyMessage as RawSymphonyMessage
-from csp_adapter_symphony.adapter import Presence
 from pydantic import PrivateAttr
 
+from .backends import (
+    DiscordAdapterManager,
+    DiscordMessage as RawDiscordMessage,
+    Presence,
+    SlackAdapterManager,
+    SlackMessage as RawSlackMessage,
+    SymphonyAdapter,
+    SymphonyMessage as RawSymphonyMessage,
+)
 from .bot_config import BotConfig
 from .commands import (
     BaseCommand,
@@ -59,12 +64,18 @@ class Bot(GatewayModule):
 
     def connect(self, channels: GatewayChannels) -> None:
         if self.config.discord_config:
+            if DiscordAdapterManager is None:
+                raise ImportError("Discord adapter not installed. Please install csp-adapter-discord.")
             self._configs["discord"] = self.config.discord_config
             self._adapters["discord"] = DiscordAdapterManager(self.config.discord_config.adapter_config)
         if self.config.slack_config:
+            if SlackAdapterManager is None:
+                raise ImportError("Slack adapter not installed. Please install csp-adapter-slack.")
             self._configs["slack"] = self.config.slack_config
             self._adapters["slack"] = SlackAdapterManager(self.config.slack_config.adapter_config)
         if self.config.symphony_config:
+            if SymphonyAdapter is None:
+                raise ImportError("Symphony adapter not installed. Please install csp-adapter-symphony.")
             self._configs["symphony"] = self.config.symphony_config
             self._adapters["symphony"] = SymphonyAdapter(self.config.symphony_config.adapter_config)
 
