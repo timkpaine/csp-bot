@@ -26,13 +26,8 @@ gateway:
     - /modules/mount_api_key_middleware
   commands:
     - /commands/help
-    - /commands/delaytest
     - /commands/echo
-    - /commands/fun
-    - /commands/mets
     - /commands/schedule
-    - /commands/thanks
-    - /commands/troutslap
   settings:
     PORT: ${port}
     AUTHENTICATE: ${authenticate}
