@@ -38,9 +38,6 @@ dependencies = [
     "croniter",
     "csp>=0.9,<1",
     "csp-gateway>=2,<3",
-    "csp-adapter-discord>=0.1,<0.2",
-    "csp-adapter-slack>=0.3,<0.4",
-    "csp-adapter-symphony>=0.3,<0.4",
     "dateparser",
     "hydra-core",
     "pandas",
@@ -53,6 +50,9 @@ develop = [
     "bump-my-version",
     "check-manifest",
     "codespell>=2.2.6,<2.5",
+    "csp-adapter-discord>=0.1,<0.2",
+    "csp-adapter-slack>=0.3,<0.4",
+    "csp-adapter-symphony>=0.3,<0.4",
     "hatchling",
     "mdformat>=0.7.17,<0.8",
     "mdformat-tables>=1,<1.1",
@@ -141,4 +141,5 @@ known-first-party = ["csp_bot"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 
 [tool.ruff.lint.per-file-ignores]
+"csp_bot/backends" = ["F401", "F403"]
 "__init__.py" = ["F401", "F403"]

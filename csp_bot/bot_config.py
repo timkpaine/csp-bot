@@ -1,10 +1,9 @@
 from typing import List, Optional, Union
 
 from ccflow import BaseModel
-from csp_adapter_discord import DiscordAdapterConfig
-from csp_adapter_slack import SlackAdapterConfig
-from csp_adapter_symphony import SymphonyAdapterConfig
 from pydantic import Field
+
+from .backends import DiscordAdapterConfig, SlackAdapterConfig, SymphonyAdapterConfig
 
 __all__ = (
     "BaseConfig",
