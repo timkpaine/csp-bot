@@ -3,11 +3,9 @@ from enum import Enum
 from typing import Tuple, Union
 
 from csp import Struct
-from csp_adapter_discord import DiscordMessage as BaseDiscordMessage
-from csp_adapter_slack import SlackMessage as BaseSlackMessage
-from csp_adapter_symphony import SymphonyMessage as BaseSymphonyMessage
 from csp_gateway.utils.struct import GatewayStruct
 
+from .backends import DiscordMessage as BaseDiscordMessage, SlackMessage as BaseSlackMessage, SymphonyMessage as BaseSymphonyMessage
 from .utils import Backend
 
 __all__ = (
