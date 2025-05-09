@@ -1,10 +1,10 @@
-import logging
 import re
 import threading
 import time
 from csv import reader
 from datetime import datetime, timedelta
 from io import StringIO
+from logging import getLogger
 from types import MappingProxyType
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -29,6 +29,7 @@ from .commands import (
     BaseCommandModel,
     HelpCommand,
     ScheduleCommand,
+    StatusCommand,
 )
 from .gateway import GatewayChannels, GatewayModule
 from .structs import (
@@ -39,7 +40,7 @@ from .structs import (
 )
 from .utils import Backend
 
-log = logging.getLogger(__name__)
+log = getLogger(__name__)
 
 SLACK_ENTITY_REGEX = re.compile("<@.+?>")
 DISCORD_ENTITY_REGEX = re.compile("<@.+?>")
@@ -469,10 +470,14 @@ class Bot(GatewayModule):
 
                 command_runner = self._commands[command]
 
+                # TODO generalize by interrogating the command signature
                 if isinstance(command_runner, ScheduleCommand):
                     # Special command, gets access to schedule of commands
                     return command_runner.preexecute(command_instance, self._scheduled, self)
-                return self._commands[command].preexecute(command_instance)
+                elif isinstance(command_runner, StatusCommand):
+                    # Special command, gets access to status of commands
+                    return command_runner.preexecute(command_instance, self)
+                return command_runner.preexecute(command_instance)
             else:
                 log.info(f"Defaulting to help command from message to bot with no command: {message}")
                 command_runner = self._commands["help"]

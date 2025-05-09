@@ -11,3 +11,4 @@ from .base import (
 from .echo import EchoCommand, EchoCommandModel
 from .help import HelpCommand, HelpCommandModel
 from .schedule import ScheduleCommand, ScheduleCommandModel
+from .status import StatusCommand, StatusCommandModel

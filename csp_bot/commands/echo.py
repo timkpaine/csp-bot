@@ -1,11 +1,11 @@
-import logging
+from logging import getLogger
 from typing import Optional, Type
 
 from csp_bot.structs import BotCommand, Message
 
 from .base import BaseCommand, BaseCommandModel, ReplyToOtherCommand
 
-log = logging.getLogger(__name__)
+log = getLogger(__name__)
 
 
 class EchoCommand(ReplyToOtherCommand):

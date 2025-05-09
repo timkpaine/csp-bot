@@ -6,3 +6,6 @@ echo:
 
 schedule:
   _target_: csp_bot.commands.ScheduleCommandModel
+
+status:
+  _target_: csp_bot.commands.StatusCommandModel

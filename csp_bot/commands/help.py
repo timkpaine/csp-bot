@@ -1,5 +1,5 @@
-import logging
 from html import escape, unescape
+from logging import getLogger
 from typing import Mapping, Type
 
 import pandas as pd
@@ -8,7 +8,7 @@ from csp_bot.structs import BotCommand, Message
 
 from .base import BaseCommand, BaseCommandModel, ReplyCommand
 
-log = logging.getLogger(__name__)
+log = getLogger(__name__)
 
 
 class HelpCommand(ReplyCommand):
