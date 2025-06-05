@@ -210,10 +210,10 @@ class Bot(GatewayModule):
                     log.info("Ignoring message (not to bot)")
                 else:
                     if not self.is_authorized(message):
-                        if self._config[message.backend].unauthorized_msg:
+                        if self._configs[message.backend].unauthorized_msg:
                             channel = message.channel if message.channel != "IM" else message.user
                             unauthorized_message = Message(
-                                msg=self._config[message.backend].unauthorized_msg, channel=channel, source=message.backend
+                                msg=self._configs[message.backend].unauthorized_msg, channel=channel, source=message.backend
                             )
                             csp.output(unauthorized_message=unauthorized_message)
                     else:
