@@ -1,5 +1,5 @@
-import logging
 from html import escape
+from logging import getLogger
 from typing import TYPE_CHECKING, Mapping, Type
 
 from croniter import CroniterBadCronError, croniter
@@ -12,7 +12,7 @@ from .base import BaseCommand, BaseCommandModel, ReplyCommand
 if TYPE_CHECKING:
     from csp_bot import Bot
 
-log = logging.getLogger(__name__)
+log = getLogger(__name__)
 
 
 class ScheduleCommand(ReplyCommand):

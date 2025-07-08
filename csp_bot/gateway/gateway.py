@@ -1,5 +1,5 @@
-import logging
 from functools import wraps
+from logging import getLogger
 from typing import List
 
 from csp import ts
@@ -16,7 +16,7 @@ from csp_bot import __version__
 from csp_bot.commands import BaseCommandModel
 from csp_bot.structs import BotCommand, Message
 
-log = logging.getLogger(__name__)
+log = getLogger(__name__)
 
 
 class GatewayChannels(GatewayChannelsBase):

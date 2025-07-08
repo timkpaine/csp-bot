@@ -1,10 +1,10 @@
-import logging
 import re
 import threading
 import time
 from csv import reader
 from datetime import datetime, timedelta
 from io import StringIO
+from logging import getLogger
 from types import MappingProxyType
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -12,18 +12,24 @@ import csp
 from bs4 import BeautifulSoup, Tag
 from croniter import croniter
 from csp import Outputs, ts
-from csp_adapter_discord import DiscordAdapterManager, DiscordMessage as RawDiscordMessage
-from csp_adapter_slack import SlackAdapterManager, SlackMessage as RawSlackMessage
-from csp_adapter_symphony import SymphonyAdapter, SymphonyMessage as RawSymphonyMessage
-from csp_adapter_symphony.adapter import Presence
 from pydantic import PrivateAttr
 
+from .backends import (
+    DiscordAdapterManager,
+    DiscordMessage as RawDiscordMessage,
+    Presence,
+    SlackAdapterManager,
+    SlackMessage as RawSlackMessage,
+    SymphonyAdapter,
+    SymphonyMessage as RawSymphonyMessage,
+)
 from .bot_config import BotConfig
 from .commands import (
     BaseCommand,
     BaseCommandModel,
     HelpCommand,
     ScheduleCommand,
+    StatusCommand,
 )
 from .gateway import GatewayChannels, GatewayModule
 from .structs import (
@@ -34,7 +40,7 @@ from .structs import (
 )
 from .utils import Backend
 
-log = logging.getLogger(__name__)
+log = getLogger(__name__)
 
 SLACK_ENTITY_REGEX = re.compile("<@.+?>")
 DISCORD_ENTITY_REGEX = re.compile("<@.+?>")
@@ -59,12 +65,18 @@ class Bot(GatewayModule):
 
     def connect(self, channels: GatewayChannels) -> None:
         if self.config.discord_config:
+            if DiscordAdapterManager is None:
+                raise ImportError("Discord adapter not installed. Please install csp-adapter-discord.")
             self._configs["discord"] = self.config.discord_config
             self._adapters["discord"] = DiscordAdapterManager(self.config.discord_config.adapter_config)
         if self.config.slack_config:
+            if SlackAdapterManager is None:
+                raise ImportError("Slack adapter not installed. Please install csp-adapter-slack.")
             self._configs["slack"] = self.config.slack_config
             self._adapters["slack"] = SlackAdapterManager(self.config.slack_config.adapter_config)
         if self.config.symphony_config:
+            if SymphonyAdapter is None:
+                raise ImportError("Symphony adapter not installed. Please install csp-adapter-symphony.")
             self._configs["symphony"] = self.config.symphony_config
             self._adapters["symphony"] = SymphonyAdapter(self.config.symphony_config.adapter_config)
 
@@ -198,10 +210,10 @@ class Bot(GatewayModule):
                     log.info("Ignoring message (not to bot)")
                 else:
                     if not self.is_authorized(message):
-                        if self._config[message.backend].unauthorized_msg:
+                        if self._configs[message.backend].unauthorized_msg:
                             channel = message.channel if message.channel != "IM" else message.user
                             unauthorized_message = Message(
-                                msg=self._config[message.backend].unauthorized_msg, channel=channel, source=message.backend
+                                msg=self._configs[message.backend].unauthorized_msg, channel=channel, source=message.backend
                             )
                             csp.output(unauthorized_message=unauthorized_message)
                     else:
@@ -458,10 +470,14 @@ class Bot(GatewayModule):
 
                 command_runner = self._commands[command]
 
+                # TODO generalize by interrogating the command signature
                 if isinstance(command_runner, ScheduleCommand):
                     # Special command, gets access to schedule of commands
                     return command_runner.preexecute(command_instance, self._scheduled, self)
-                return self._commands[command].preexecute(command_instance)
+                elif isinstance(command_runner, StatusCommand):
+                    # Special command, gets access to status of commands
+                    return command_runner.preexecute(command_instance, self)
+                return command_runner.preexecute(command_instance)
             else:
                 log.info(f"Defaulting to help command from message to bot with no command: {message}")
                 command_runner = self._commands["help"]

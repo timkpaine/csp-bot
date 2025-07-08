@@ -1,9 +1,7 @@
 from typing import Literal
 from urllib.parse import urlparse  # quote
 
-from csp_adapter_discord import mention_user as discord_mention_user
-from csp_adapter_slack import mention_user as slack_mention_user
-from csp_adapter_symphony import mention_user as symphony_mention_user
+from .backends import mention_user_discord, mention_user_slack, mention_user_symphony
 
 __all__ = (
     "is_valid_url",
@@ -58,12 +56,12 @@ def recursive_format_for_message_ml(d):
 
 def mention_user(email_or_userid: str = "", backend: Backend = "symphony") -> str:
     if backend == "symphony":
-        return symphony_mention_user(email_or_userid)
+        return mention_user_symphony(email_or_userid)
     elif backend == "slack":
         if not email_or_userid.startswith("@"):
             email_or_userid = f"@{email_or_userid}"
-        return slack_mention_user(email_or_userid)
+        return mention_user_slack(email_or_userid)
     elif backend == "discord":
-        return discord_mention_user(email_or_userid)
+        return mention_user_discord(email_or_userid)
     else:
         raise NotImplementedError(f"Unsupported backend: {backend}")

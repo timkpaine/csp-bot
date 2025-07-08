@@ -1,4 +1,4 @@
-import logging
+from logging import getLogger
 from pathlib import Path
 from typing import List, Optional
 
@@ -6,7 +6,7 @@ from ccflow import RootModelRegistry, load_config as load_config_base
 
 from csp_bot import __version__
 
-log = logging.getLogger(__name__)
+log = getLogger(__name__)
 
 __all__ = ("load_config",)
 
