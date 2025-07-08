@@ -98,7 +98,7 @@ class HelloCommandModel(BaseCommandModel):
 To select commands, including custom commands, follow the documentation in [Configuration](Configuration).
 For example, with a Slack bot and the above command in `hello.py`:
 
-**my_bot_config/slack_with_hello.yaml**
+**my_bot_config/bot/slack_with_hello.yaml**
 
 ```yaml
 # @package _global_
