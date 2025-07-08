@@ -6,7 +6,7 @@ In the context of `csp-bot`, this means that we can control commands, backends, 
 
 Here is an example of a yaml-based configuration for the standard Slack-based chatbot:
 
-**example/slack.yaml**
+**example/bot/slack.yaml**
 
 ```yaml
 # @package _global_
@@ -63,7 +63,7 @@ hydra:
     name: csp-bot-slack[${bot_name}]
 ```
 
-The `???` show that these fields should be overridden in other configs, which is exactly what we do in our `example/slack.yaml`.
+The `???` show that these fields should be overridden in other configs, which is exactly what we do in our `example/bot/slack.yaml`.
 We also see that the bot instance is configured with a `SlackConfig`.
 
 For each backend supported, this is just a wrapper around the backend adapter's configuration:
