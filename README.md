@@ -7,7 +7,8 @@
 
 <br/>
 
-[![Build Status](https://github.com/point72/csp-bot/actions/workflows/build.yml/badge.svg?branch=main&event=push)](https://github.com/point72/csp-bot/actions/workflows/build.yml)
+[![Build Status](https://github.com/point72/csp-bot/actions/workflows/build.yaml/badge.svg?branch=main&event=push)](https://github.com/point72/csp-bot/actions/workflows/build.yaml)
+[![codecov](https://codecov.io/gh/point72/csp-bot/branch/main/graph/badge.svg)](https://codecov.io/gh/point72/csp-bot)
 [![GitHub issues](https://img.shields.io/github/issues/point72/csp-bot.svg)](https://github.com/point72/csp-bot/issues)
 [![PyPI](https://img.shields.io/pypi/l/csp-bot.svg)](https://pypi.python.org/pypi/csp-bot)
 [![PyPI](https://img.shields.io/pypi/v/csp-bot.svg)](https://pypi.python.org/pypi/csp-bot)
