@@ -496,7 +496,11 @@ class Bot(GatewayModule):
             raise
         except Exception:
             # Ignore
-            log.exception(f"Error processing message: {message}")
+            # NOTE: message itself may be malformed!
+            try:
+                log.exception(f"Error processing message: {message}")
+            except Exception:
+                log.exception("Error processing message (could not log message itself)")
 
     def run_bot_command(self, command_instance: BotCommand) -> Optional[Union[List[Message], List[BotCommand]]]:
         # grab the important bits of the command
