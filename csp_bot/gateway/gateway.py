@@ -18,6 +18,17 @@ from csp_bot.structs import BotCommand, Message
 
 log = getLogger(__name__)
 
+__all__ = (
+    "GatewayChannels",
+    "GatewayModule",
+    "GatewaySettings",
+    "CspBotGateway",
+    "Channels",
+    "Gateway",
+    "Module",
+    "Settings",
+)
+
 
 class GatewayChannels(GatewayChannelsBase):
     messages_in: ts[Message] = None
@@ -72,5 +83,7 @@ class CspBotGateway(BaseGateway):
         super(CspBotGateway, self).start(*args, **kwargs)
 
 
+Channels = GatewayChannels
 Gateway = CspBotGateway
+Module = GatewayModule
 Settings = GatewaySettings
