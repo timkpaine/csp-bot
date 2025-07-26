@@ -87,7 +87,6 @@ replace = 'version = "{new_version}"'
 
 [tool.check-manifest]
 ignore = [
-    ".copier-answers.yml",
     "Makefile",
     "docs/**/*",
     "example/**/*",
