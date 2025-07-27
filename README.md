@@ -30,6 +30,8 @@ It is built on [csp](https://github.com/point72/csp), [csp-gateway](https://gith
 
 For a detailed overview and examples, see our [Documentation](https://github.com/Point72/csp-bot/wiki/Overview).
 
+Community-supported commands can be found in the [csp-bot-commands](https://github.com/csp-community/csp-bot-commands) project.
+
 ## Installation
 
 Install with `pip`:
