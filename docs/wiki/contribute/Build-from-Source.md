@@ -1,8 +1,5 @@
-`csp-bot` is written in Python and Javascript. While prebuilt wheels are provided for end users, it is also straightforward to build `csp-bot` from either the Python [source distribution](https://packaging.python.org/en/latest/specifications/source-distribution-format/) or the GitHub repository.
+`csp-bot` is written in Python. While prebuilt wheels are provided for end users, it is also straightforward to build `csp-bot` from either the Python [source distribution](https://packaging.python.org/en/latest/specifications/source-distribution-format/) or the GitHub repository.
 
-## Table of Contents
-
-- [Table of Contents](#table-of-contents)
 - [Make commands](#make-commands)
 - [Prerequisites](#prerequisites)
 - [Clone](#clone)
@@ -27,6 +24,8 @@ test                           run the tests
 ```
 
 ## Prerequisites
+
+`csp-bot` has a few system-level dependencies which you can install from your machine package manager. Other package managers like `conda`, `nix`, etc, should also work fine.
 
 ## Clone
 
@@ -59,32 +58,39 @@ make build
 
 `csp-bot` has linting and auto formatting.
 
-| Language | Linter     | Autoformatter | Description |
-| :------- | :--------- | :------------ | :---------- |
-| Python   | `ruff`     | `ruff`        | Style       |
-| Python   | `ruff`     | `ruff`        | Imports     |
-| Markdown | `prettier` | `prettier`    | Style       |
+| Language | Linter      | Autoformatter | Description |
+| :------- | :---------- | :------------ | :---------- |
+| Python   | `ruff`      | `ruff`        | Style       |
+| Markdown | `mdformat`  | `mdformat`    | Style       |
+| Markdown | `codespell` |               | Spelling    |
 
 **Python Linting**
 
 ```bash
-make lint
+make lint-py
 ```
 
 **Python Autoformatting**
 
 ```bash
-make fix
+make fix-py
 ```
 
 **Documentation Linting**
 
-We use `prettier` for our Markdown linting, so follow the above docs.
+```bash
+make lint-docs
+```
+
+**Documentation Autoformatting**
+
+```bash
+make fix-docs
+```
 
 ## Testing
 
-`csp-bot` has Python tests, which can be run via `pytest`.
-First, install the Python development dependencies with
+`csp-bot` has extensive Python tests. The tests can be run via `pytest`. First, install the Python development dependencies with
 
 ```bash
 make develop

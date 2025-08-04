@@ -4,36 +4,40 @@
 .PHONY: develop build install
 
 develop:  ## install dependencies and build library
-	python -m pip install -e .[develop]
+	uv pip install -e .[develop]
+
+requirements:  ## install prerequisite python build requirements
+	python -m pip install --upgrade pip toml
+	python -m pip install `python -c 'import toml; c = toml.load("pyproject.toml"); print("\n".join(c["build-system"]["requires"]))'`
+	python -m pip install `python -c 'import toml; c = toml.load("pyproject.toml"); print(" ".join(c["project"]["optional-dependencies"]["develop"]))'`
 
 build:  ## build the python library
 	python -m build -n
 
 install:  ## install library
-	python -m pip install .
+	uv pip install .
 
 #########
 # LINTS #
 #########
-.PHONY: lint lints fix format lint-py lint-docs fix-py fix-docs
+.PHONY: lint-py lint-docs fix-py fix-docs lint lints fix format
 
-lint-py:  ## run python linter with ruff
+lint-py:  ## lint python with ruff
 	python -m ruff check csp_bot
 	python -m ruff format --check csp_bot
 
 lint-docs:  ## lint docs with mdformat and codespell
-	python -m mdformat --check docs/wiki/ README.md
-	python -m codespell_lib docs/wiki/ README.md
+	python -m mdformat --check README.md docs/wiki/
+	python -m codespell_lib README.md docs/wiki/
 
-fix-py:  ## fix python formatting with ruff
+fix-py:  ## autoformat python code with ruff
 	python -m ruff check --fix csp_bot
 	python -m ruff format csp_bot
 
 fix-docs:  ## autoformat docs with mdformat and codespell
-	python -m mdformat docs/wiki/ README.md
-	python -m codespell_lib --write docs/wiki/ README.md
+	python -m mdformat README.md docs/wiki/
+	python -m codespell_lib --write README.md docs/wiki/
 
-# alias
 lint: lint-py lint-docs  ## run all linters
 lints: lint
 fix: fix-py fix-docs  ## run all autoformatters
