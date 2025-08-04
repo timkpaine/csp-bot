@@ -4,8 +4,8 @@ build-backend="hatchling.build"
 
 [project]
 name = "csp-bot"
-authors = [{name = "the csp-bot authors", email = "CSPOpenSource@point72.com"}]
-description = "CSP Bot"
+authors = [{name = "Point72, L.P.", email = "OpenSource@point72.com"}]
+description = "Reactive chat bot framework"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 version = "1.1.0"
@@ -49,17 +49,18 @@ develop = [
     "build",
     "bump-my-version",
     "check-manifest",
-    "codespell>=2.2.6,<2.5",
+    "codespell>=2.4,<2.5",
     "csp-adapter-discord>=0.1,<0.2",
     "csp-adapter-slack>=0.3,<0.4",
     "csp-adapter-symphony>=0.3,<0.4",
     "hatchling",
-    "mdformat>=0.7.17,<0.8",
-    "mdformat-tables>=1,<1.1",
+    "mdformat>=0.7.22,<0.8",
+    "mdformat-tables>=1",
     "pytest",
     "pytest-cov",
-    "ruff>=0.5,<0.10",
-    "twine>=5,<7",
+    "ruff",
+    "twine",
+    "uv",
     "wheel",
 ]
 
@@ -67,8 +68,8 @@ develop = [
 csp-bot-start = "csp_bot.cli:main"
 
 [project.urls]
-Repository = "https://github.com/point72/csp-bot"
-Homepage = "https://github.com/point72/csp-bot"
+Repository = "https://github.com/Point72/csp-bot"
+Homepage = "https://github.com/Point72/csp-bot"
 
 [tool.bumpversion]
 current_version = "1.1.0"
@@ -88,6 +89,7 @@ replace = 'version = "{new_version}"'
 
 [tool.check-manifest]
 ignore = [
+    ".copier-answers.yaml",
     "Makefile",
     "docs/**/*",
     "example/**/*",
@@ -125,7 +127,6 @@ exclude = ["/docs", "/example"]
 
 [tool.pytest.ini_options]
 addopts = ["-vvv", "--junitxml=junit.xml"]
-asyncio_mode = "strict"
 testpaths = "csp_bot/tests"
 
 [tool.ruff]
@@ -141,5 +142,5 @@ known-first-party = ["csp_bot"]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 
 [tool.ruff.lint.per-file-ignores]
-"csp_bot/backends" = ["F401", "F403"]
 "__init__.py" = ["F401", "F403"]
+"csp_bot/backends" = ["F401", "F403"]
