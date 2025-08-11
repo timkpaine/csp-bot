@@ -24,4 +24,4 @@ except ImportError:
     class SymphonyMessage(Struct):
         _ignore: str = ""
 
-    mention_user_symphony = lambda x: x  # noqa: E731
+    mention_user_symphony = None
