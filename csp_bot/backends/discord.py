@@ -20,4 +20,4 @@ except ImportError:
     class DiscordMessage(Struct):
         _ignore: str = ""
 
-    mention_user_discord = lambda x: x  # noqa: E731
+    mention_user_discord = None

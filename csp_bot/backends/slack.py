@@ -21,4 +21,4 @@ except ImportError:
     class SlackMessage(Struct):
         _ignore: str = ""
 
-    mention_user_slack = lambda x: x  # noqa: E731
+    mention_user_slack = None

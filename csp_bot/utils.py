@@ -56,12 +56,18 @@ def recursive_format_for_message_ml(d):
 
 def mention_user(email_or_userid: str = "", backend: Backend = "symphony") -> str:
     if backend == "symphony":
+        if mention_user_symphony is None:
+            raise ImportError("Symphony adapter is not available.")
         return mention_user_symphony(email_or_userid)
     elif backend == "slack":
         if not email_or_userid.startswith("@"):
             email_or_userid = f"@{email_or_userid}"
+        if mention_user_slack is None:
+            raise ImportError("Slack adapter is not available.")
         return mention_user_slack(email_or_userid)
     elif backend == "discord":
+        if mention_user_discord is None:
+            raise ImportError("Discord adapter is not available.")
         return mention_user_discord(email_or_userid)
     else:
         raise NotImplementedError(f"Unsupported backend: {backend}")
