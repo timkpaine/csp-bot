@@ -81,4 +81,4 @@ By default, we provide a few builtinn configurations
 - Slack+Symphony+Discord (Hydra: `/gateway: all`)
 
 You can extend these configs, or use them as the basis for your own custom config.
-All can be founnd in-source in [csp_bot/config/gateway](https://github.com/Point72/csp-bot/tree/main/csp_bot/config/gateway).
+All can be found in-source in [csp_bot/config/gateway](https://github.com/Point72/csp-bot/tree/main/csp_bot/config/gateway).
