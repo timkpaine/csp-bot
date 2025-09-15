@@ -146,6 +146,7 @@ csp_bot/extension
 # Jupyter
 .ipynb_checkpoints
 .autoversion
+Untitled*.ipynb
 !csp_bot/extension/csp_bot.json
 !csp_bot/extension/install.json
 csp_bot/nbextension
