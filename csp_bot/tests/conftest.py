@@ -7,6 +7,12 @@ from csp_adapter_discord import DiscordAdapterConfig
 from csp_adapter_slack import SlackAdapterConfig
 
 from csp_bot import Bot, BotCommand, BotConfig, Channels, DiscordConfig, Message, SlackConfig
+from csp_bot.commands import (
+    EchoCommandModel,
+    HelpCommandModel,
+    ScheduleCommandModel,
+    StatusCommandModel,
+)
 
 
 @pytest.fixture(scope="session")
@@ -39,6 +45,13 @@ def bot(bot_config):
         raise Exception(name)
 
     channels_mock.get_channel.side_effect = side_effect
+
+    # Create a mock adapter that returns a known bot tag
+    mock_slack_adapter = MagicMock()
+    mock_slack_adapter._get_user_from_name.return_value = "UBOT123"
+
+    mock_discord_adapter = MagicMock()
+
     with (
         patch("csp.unroll", return_value=Edge(ts[Message], None, 0)),
         patch("csp.flatten", return_value=Edge(ts[Message], None, 0)),
@@ -47,4 +60,19 @@ def bot(bot_config):
         patch("csp_adapter_slack.adapter.SlackAdapterManager.publish"),
     ):
         bot.connect(channels=channels_mock)
+
+        # Patch adapters after connect to provide bot tag support
+        bot._adapters["slack"] = mock_slack_adapter
+        bot._adapters["discord"] = mock_discord_adapter
+
+        # Load default commands
+        bot.load_commands(
+            [
+                HelpCommandModel(),
+                EchoCommandModel(),
+                StatusCommandModel(),
+                ScheduleCommandModel(),
+            ]
+        )
+
         yield bot
