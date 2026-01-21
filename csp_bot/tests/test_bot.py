@@ -205,6 +205,41 @@ class TestIsMsgToBot:
         is_to_bot, channel, text, entities = bot.is_msg_to_bot(msg)
         assert is_to_bot is False
 
+    def test_symphony_similar_bot_names_no_false_match(self, bot_with_symphony: Bot):
+        """Test that '@Cubist Bot' does not match when '@Cubist Bot Dev' is tagged in Symphony.
+
+        This ensures exact entity matching is used, preventing substring matches
+        where a bot with a shorter name incorrectly receives messages meant for
+        a bot with a longer, similar name.
+        """
+        # Bot is configured with name "Cubist Bot", but message tags "Cubist Bot Dev"
+        msg = Message(
+            user="John Doe",
+            user_id="123456789",
+            msg='<div data-format="PresentationML"><span class="entity" data-entity-id="0">@Cubist Bot Dev</span> /help</div>',
+            channel="Test Room",
+            tags=["987654321"],
+            backend="symphony",
+        )
+        is_to_bot, channel, text, entities = bot_with_symphony.is_msg_to_bot(msg)
+        # Should NOT match because "@Cubist Bot" != "@Cubist Bot Dev"
+        assert is_to_bot is False
+
+    def test_symphony_exact_bot_name_matches(self, bot_with_symphony: Bot):
+        """Test that exact bot name match works correctly in Symphony."""
+        # Bot is configured with name "Cubist Bot", message also tags "Cubist Bot"
+        msg = Message(
+            user="John Doe",
+            user_id="123456789",
+            msg='<div data-format="PresentationML"><span class="entity" data-entity-id="0">@Cubist Bot</span> /help</div>',
+            channel="Test Room",
+            tags=["987654321"],
+            backend="symphony",
+        )
+        is_to_bot, channel, text, entities = bot_with_symphony.is_msg_to_bot(msg)
+        # Should match because "@Cubist Bot" == "@Cubist Bot"
+        assert is_to_bot is True
+
 
 class TestBot:
     """Tests for Bot command extraction and execution."""
