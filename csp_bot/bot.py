@@ -384,14 +384,18 @@ class Bot(GatewayModule):
 
             # entity detection
             if entity_map and token in entity_map:
-                # symphony and slack handle tagging opposite
-                if message.backend == "symphony":
-                    name, id = entity_map[token]
-                elif message.backend == "slack":
-                    id, name = entity_map[token]
-                elif message.backend == "discord":
-                    name, id = entity_map[token]
-                target_tags.append(User(name=name, id=id, backend=message.backend))
+                # entity_map stores (entity_text, tag_value) where:
+                # - For Slack: entity_text is "@USER_ID", tag_value is display name
+                # - For Symphony/Discord: entity_text is "@DisplayName", tag_value is user ID
+                entity_text, tag_value = entity_map[token]
+                if message.backend == "slack":
+                    # For Slack: entity_text has the user ID (with @ prefix), tag_value is display name
+                    # Strip @ from entity_text to get clean user ID matching source.id format
+                    user_id = entity_text[1:] if entity_text.startswith("@") else entity_text
+                    target_tags.append(User(name=tag_value, id=user_id, backend=message.backend))
+                else:
+                    # Symphony/Discord: entity_text is display name, tag_value is user ID
+                    target_tags.append(User(name=entity_text, id=tag_value, backend=message.backend))
                 continue
 
             command_args.append(token)
@@ -427,6 +431,7 @@ class Bot(GatewayModule):
                     if message.backend == "symphony":
                         text = text.replace(entity, entity_placeholder, 1)
                     elif message.backend == "slack":
+                        # NOTE: don't replace the @ in front of entity, to match other frameworks
                         text = text.replace(f"<{entity}>", entity_placeholder, 1)
                     elif message.backend == "discord":
                         text = text.replace(f"<{entity}>", entity_placeholder, 1)
@@ -436,9 +441,19 @@ class Bot(GatewayModule):
 
                 tokens = next(reader(StringIO(text), delimiter=" ", quotechar='"', skipinitialspace=True))
 
-                if tokens[0] in entity_map and entity_map[tokens[0]][0] == f"@{self._get_bot_tag(message.backend)}":
-                    # remove initial bot directive
-                    tokens = tokens[1:]
+                # Check if the first token is the bot being tagged - if so, remove it
+                if tokens[0] in entity_map:
+                    entity_text, tag_value = entity_map[tokens[0]]
+                    bot_tag = self._get_bot_tag(message.backend)
+                    if message.backend == "slack":
+                        # Slack: entity_text is "@USER_ID", strip @ and compare with bot_tag (user ID)
+                        entity_user_id = entity_text[1:] if entity_text.startswith("@") else entity_text
+                        if entity_user_id == bot_tag:
+                            tokens = tokens[1:]
+                    else:
+                        # Symphony/Discord: entity_text contains @name
+                        if entity_text == f"@{bot_tag}":
+                            tokens = tokens[1:]
 
                 ret = self.bot_commands_from_command_string(tokens, message, channel, entity_map)
                 if not ret:

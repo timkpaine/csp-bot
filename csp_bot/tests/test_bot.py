@@ -398,10 +398,11 @@ class TestBotCommandsFromCommandString:
             user_id="U123",
             msg="/echo <@U456>",
             channel="general",
-            tags=["U456"],
+            tags=["Bob Smith"],  # Slack tags contain display names, not IDs
             backend="slack",
         )
-        entity_map = {"ENTITY_0": ("@U456", "U456")}
+        # For Slack: entity_text is "@USER_ID", tag_value is display name
+        entity_map = {"ENTITY_0": ("@U456", "Bob Smith")}
         result = bot.bot_commands_from_command_string(
             tokens=["/echo", "ENTITY_0"],
             message=msg,
@@ -412,9 +413,9 @@ class TestBotCommandsFromCommandString:
         command, args, target_channel, target_tags = result
         assert command == "echo"
         assert len(target_tags) == 1
-        # The Tag stores the full name with @ prefix as the ID for Slack
-        assert target_tags[0].id == "@U456"
-        assert target_tags[0].name == "U456"
+        # For Slack: id comes from entity_text (stripped @), name comes from tag_value
+        assert target_tags[0].id == "U456"
+        assert target_tags[0].name == "Bob Smith"
 
     def test_command_with_entity_symphony(self, bot: Bot):
         """Test parsing command with entity mentions for Symphony."""
