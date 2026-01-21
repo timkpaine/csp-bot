@@ -76,3 +76,32 @@ def bot(bot_config):
         )
 
         yield bot
+
+
+@pytest.fixture(scope="function")
+def bot_with_symphony():
+    """Bot fixture with Symphony config for testing Symphony-specific behavior."""
+    # Create a minimal bot config without Symphony (we'll mock it)
+    bot_config = BotConfig()
+    bot = Bot(config=bot_config)
+
+    # Create a mock symphony config with just the bot_name we need
+    mock_symphony_config = MagicMock()
+    mock_symphony_config.bot_name = "Cubist Bot"  # Shorter name to test against "Cubist Bot Dev"
+
+    # Mock the symphony adapter
+    mock_symphony_adapter = MagicMock()
+    bot._adapters["symphony"] = mock_symphony_adapter
+    bot._configs["symphony"] = mock_symphony_config
+
+    # Load default commands
+    bot.load_commands(
+        [
+            HelpCommandModel(),
+            EchoCommandModel(),
+            StatusCommandModel(),
+            ScheduleCommandModel(),
+        ]
+    )
+
+    yield bot

@@ -588,7 +588,15 @@ class Bot(GatewayModule):
         # if the bot is not tagged, first argument is false so ignore second arg
         bot_name = self._configs[msg.backend].bot_name
         bot_tag_to_find = self._get_bot_tag(msg.backend)
-        bot_tag = f"@{bot_tag_to_find}" in text
+
+        # Check if bot is tagged - use exact entity matching to avoid
+        # "@Cubist Bot" matching inside "@Cubist Bot Dev"
+        if msg.backend == "symphony":
+            # For Symphony: entities contain the exact tagged names like "@Cubist Bot Dev"
+            bot_tag = f"@{bot_tag_to_find}" in entities
+        else:
+            # For Slack/Discord: entities contain user IDs, use substring match on text
+            bot_tag = f"@{bot_tag_to_find}" in text
 
         if bot_tag:
             return True, msg.channel, text, entities
