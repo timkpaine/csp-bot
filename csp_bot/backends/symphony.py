@@ -1,27 +1,34 @@
-from csp import Struct
-from pydantic import BaseModel
+"""Symphony backend integration using chatom.
+
+This module provides Symphony-specific types and adapters through chatom.
+"""
 
 __all__ = (
-    "SymphonyAdapterConfig",
+    "SymphonyConfig",
     "SymphonyAdapter",
     "SymphonyMessage",
-    "Presence",
-    "mention_user_symphony",
+    "SymphonyUser",
+    "SymphonyPresenceStatus",
 )
 
-# reexport
 try:
-    from csp_adapter_symphony import SymphonyAdapter, SymphonyAdapterConfig, SymphonyMessage, mention_user as mention_user_symphony
-    from csp_adapter_symphony.adapter import Presence
+    from chatom.symphony import (
+        SymphonyConfig,
+        SymphonyMessage,
+        SymphonyPresenceStatus,
+        SymphonyUser,
+    )
+    from csp_adapter_symphony.v1 import SymphonyAdapter
 except ImportError:
+    from chatom import Message as ChatomMessage, User as ChatomUser
+    from pydantic import BaseModel
 
-    class SymphonyAdapterConfig(BaseModel):
+    class SymphonyConfig(BaseModel):
+        """Placeholder when chatom.symphony is not available."""
+
         pass
 
     SymphonyAdapter = None
-    Presence = None
-
-    class SymphonyMessage(Struct):
-        _ignore: str = ""
-
-    mention_user_symphony = None
+    SymphonyMessage = ChatomMessage
+    SymphonyUser = ChatomUser
+    SymphonyPresenceStatus = None

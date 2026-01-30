@@ -1,7 +1,15 @@
+"""Echo command for csp-bot.
+
+A simple command that echoes back messages.
+"""
+
 from logging import getLogger
 from typing import Optional, Type
 
-from csp_bot.structs import BotCommand, Message
+from chatom import Message
+
+from csp_bot.structs import BotCommand
+from csp_bot.utils import mention_users
 
 from .base import BaseCommand, BaseCommandModel, ReplyToOtherCommand
 
@@ -9,26 +17,37 @@ log = getLogger(__name__)
 
 
 class EchoCommand(ReplyToOtherCommand):
+    """Echo a message back to the channel."""
+
     def command(self) -> str:
         return "echo"
 
     def name(self) -> str:
-        return "echo"
+        return "Echo"
 
     def help(self) -> str:
-        return "Echo something. Syntax: /echo <message> [/channel <channel>]"
+        return "Echo a message. Syntax: /echo <message> [/channel <channel>]"
 
     def execute(self, command: BotCommand) -> Optional[Message]:
-        log.info(f"Echo command: {command}")
+        log.info(f"Echo command: {command.command}")
 
-        if not command.args:
-            # Malformed
-            return
-        message = " ".join(command.args)
+        # Build content from args
+        content = " ".join(command.args) if command.args else ""
+
+        # Add mentions for any tagged users
+        if command.targets:
+            mentions = mention_users([t.to_chatom_user() for t in command.targets], command.backend)
+            if mentions:
+                content = f"{content} {mentions}".strip()
+
+        # If nothing to echo (no args and no targets), return None
+        if not content:
+            return None
+
         return Message(
-            msg=message,
+            content=content,
             channel=command.channel,
-            backend=command.backend,
+            metadata={"backend": command.backend},
         )
 
 

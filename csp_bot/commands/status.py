@@ -1,13 +1,19 @@
+"""Status command for csp-bot.
+
+Displays system and bot status information.
+"""
+
 from datetime import datetime
 from getpass import getuser
 from logging import getLogger
 from socket import gethostname
 from threading import active_count
-from typing import TYPE_CHECKING, Optional, Type
+from typing import TYPE_CHECKING, List, Optional, Type
 
 import psutil
+from chatom import Message
 
-from csp_bot.structs import BotCommand, Message
+from csp_bot.structs import BotCommand
 
 from .base import BaseCommand, BaseCommandModel, ReplyCommand
 
@@ -21,47 +27,47 @@ _USER = getuser()
 
 
 class StatusCommand(ReplyCommand):
+    """Display bot and system status."""
+
+    _adapters: List[str] = []
+
     def command(self) -> str:
         return "status"
 
     def name(self) -> str:
-        return "status"
+        return "Status"
 
     def help(self) -> str:
-        return "System information. Syntax: /status [/channel <channel>]"
+        return "Display system status. Syntax: /status [/channel <channel>]"
 
     def preexecute(self, command: BotCommand, bot_instance: "Bot") -> BotCommand:
-        # TODO: pull out everything except auth keys?
         self._adapters = list(bot_instance._adapters.keys())
         return command
 
     def execute(self, command: BotCommand) -> Optional[Message]:
-        log.info(f"Status command: {command}")
+        log.info("Status command")
 
-        message = ""
+        # Build status information
+        lines = []
 
-        # Time information
-        message += f"Now\n\t{datetime.utcnow()}\n"
+        lines.append(f"**Now**: {datetime.utcnow()}")
+        lines.append(f"**Backends**: {', '.join(self._adapters)}")
+        lines.append(f"**CPU**: {psutil.cpu_percent()}%")
+        lines.append(f"**Memory**: {psutil.virtual_memory().percent}%")
+        lines.append(f"**Memory Available**: {round(psutil.virtual_memory().available * 100 / psutil.virtual_memory().total, 2)}%")
+        lines.append(f"**Host**: {_HOSTNAME}")
+        lines.append(f"**User**: {_USER}")
 
-        # Adapter information
-        message += f"Backends:\n\t{', '.join(self._adapters)}\n"
-
-        # Machine information
-        message += f"CPU\n\t{psutil.cpu_percent()}\n"
-        message += f"Memory\n\t{psutil.virtual_memory().percent}\n"
-        message += f"Memory Available\n\t{round(psutil.virtual_memory().available * 100 / psutil.virtual_memory().total, 2)}\n"
-        message += f"Host\n\t{_HOSTNAME}\n"
-        message += f"User\n\t{_USER}\n"
-
-        # Process and thread information
         current_process = psutil.Process()
-        message += f"PID\n\t{current_process.pid}\n"
-        message += f"Active Threads\n\t{active_count()}\n"
+        lines.append(f"**PID**: {current_process.pid}")
+        lines.append(f"**Active Threads**: {active_count()}")
+
+        content = "\n".join(lines)
 
         return Message(
-            msg=message,
+            content=content,
             channel=command.channel,
-            backend=command.backend,
+            metadata={"backend": command.backend},
         )
 
 

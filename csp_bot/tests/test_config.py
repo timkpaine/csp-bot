@@ -1,20 +1,45 @@
-from csp_bot import Bot, load_config
+"""Tests for BotConfig and related configuration classes."""
+
+from csp_bot import BotConfig
+from csp_bot.bot_config import SlackConfig, SymphonyConfig
 
 
-def test_with_initialize() -> None:
-    overrides = ["+gateway=slack", "app_token=xapp-1", "bot_token=xoxb-", "bot_name=DUMMY_BOT_NAME"]
-    registry = load_config(overrides=overrides, overwrite=True)
-    gateway = registry["gateway"]
-    bot_module = None
-    for module in gateway.modules:
-        if isinstance(module, Bot):
-            bot_module = module
-            break
+class TestBotConfig:
+    """Tests for BotConfig class."""
 
-    assert bot_module is not None, "Gateway must have `Bot` as a module"
-    assert bot_module.config.slack_config.bot_name == "DUMMY_BOT_NAME"
+    def test_empty_config(self):
+        """Test creating a BotConfig with no backends."""
+        config = BotConfig()
+        assert config.discord is None
+        assert config.slack is None
+        assert config.symphony is None
 
-    adapter_config = bot_module.config.slack_config.adapter_config
+    def test_config_with_slack(self):
+        """Test creating a BotConfig with Slack backend."""
+        slack_config = SlackConfig(
+            channels={"general", "random"},
+        )
+        config = BotConfig(slack=slack_config)
+        assert config.slack is not None
+        assert "general" in config.slack.channels
 
-    assert adapter_config.app_token == "xapp-1"
-    assert adapter_config.bot_token == "xoxb-"
+
+class TestBackendConfig:
+    """Tests for backend configuration classes."""
+
+    def test_slack_config_defaults(self):
+        """Test SlackConfig default values."""
+        config = SlackConfig()
+        assert config.bot_name == ""  # Empty by default, auto-detected
+        assert config.channels == set()
+
+    def test_symphony_config_defaults(self):
+        """Test SymphonyConfig default values."""
+        config = SymphonyConfig()
+        assert config.bot_name == ""  # Empty by default, auto-detected
+        assert config.set_presence_seconds == 0
+
+    def test_explicit_bot_name(self):
+        """Test explicit bot_name override."""
+        config = SlackConfig(bot_name="MyBot")
+        assert config.bot_name == "MyBot"

@@ -1,4 +1,16 @@
-import re
+"""CSP Bot using chatom for unified chat platform support.
+
+This module provides the Bot class that leverages chatom's unified
+interface for working with multiple chat platforms (Slack, Symphony, Discord).
+
+Key features enabled by chatom:
+- Unified Message, User, and Channel models
+- Cross-platform mention generation
+- Backend-specific message formatting
+- Entity recognition and parsing
+"""
+
+import asyncio
 import threading
 import time
 from csv import reader
@@ -9,19 +21,17 @@ from types import MappingProxyType
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import csp
-from bs4 import BeautifulSoup, Tag
+from chatom import Channel, Message, User, mention_user_for_backend
+from chatom.base import parse_mentions
 from croniter import croniter
 from csp import Outputs, ts
 from pydantic import PrivateAttr
 
 from .backends import (
-    DiscordAdapterManager,
-    DiscordMessage as RawDiscordMessage,
-    Presence,
-    SlackAdapterManager,
-    SlackMessage as RawSlackMessage,
+    DiscordAdapter,
+    SlackAdapter,
     SymphonyAdapter,
-    SymphonyMessage as RawSymphonyMessage,
+    SymphonyPresenceStatus,
 )
 from .bot_config import BotConfig
 from .commands import (
@@ -33,587 +43,915 @@ from .commands import (
 )
 from .gateway import GatewayChannels, GatewayModule
 from .structs import (
+    Backend,
     BotCommand,
-    CommandVariant,
-    Message,
-    User,
+    BotMessage,
 )
-from .utils import Backend
 
 log = getLogger(__name__)
-
-SLACK_ENTITY_REGEX = re.compile("<@.+?>")
-DISCORD_ENTITY_REGEX = re.compile("<@.+?>")
 
 __all__ = ("Bot",)
 
 
 class Bot(GatewayModule):
+    """CSP Bot module using chatom for multi-platform support.
+
+    This bot leverages chatom's unified interface to work seamlessly
+    across Slack, Symphony, and Discord.
+
+    Features:
+        - Unified message handling via chatom Message type
+        - Cross-platform user mentions via chatom
+        - Entity recognition using chatom's mention parsing
+        - Backend-specific message formatting
+    """
+
     config: BotConfig
 
-    # FIXME do via hydra
-    # commands: List[BaseCommandModel]
     _command_models: List[BaseCommandModel] = PrivateAttr(default_factory=list)
     _commands: Dict[str, BaseCommand] = PrivateAttr(default_factory=dict)
-
-    _configs: Dict[Backend, dict] = PrivateAttr(default_factory=dict)  # convenience for lookups by name
-    _adapters: Dict[Backend, object] = PrivateAttr(default_factory=dict)
-    _scheduled = PrivateAttr(default_factory=dict)
+    _configs: Dict[Backend, Any] = PrivateAttr(default_factory=dict)
+    _adapters: Dict[Backend, Any] = PrivateAttr(default_factory=dict)
+    _connected_backends: Dict[Backend, Tuple[Any, asyncio.AbstractEventLoop]] = PrivateAttr(default_factory=dict)
+    _scheduled: Dict[str, BotCommand] = PrivateAttr(default_factory=dict)
     _authorized_users: Dict[Backend, Set[str]] = PrivateAttr(default_factory=dict)
+    _bot_user_ids: Dict[Backend, str] = PrivateAttr(default_factory=dict)
+    _bot_names: Dict[Backend, str] = PrivateAttr(default_factory=dict)
     _thread: Optional[threading.Thread] = PrivateAttr(None)
     _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
     def connect(self, channels: GatewayChannels) -> None:
-        if self.config.discord_config:
-            if DiscordAdapterManager is None:
+        """Connect to configured backends and set up message processing.
+
+        Uses chatom's unified adapters for each backend.
+        """
+        # Initialize Discord
+        if self.config.discord:
+            if DiscordAdapter is None:
                 raise ImportError("Discord adapter not installed. Please install csp-adapter-discord.")
-            self._configs["discord"] = self.config.discord_config
-            self._adapters["discord"] = DiscordAdapterManager(self.config.discord_config.adapter_config)
-        if self.config.slack_config:
-            if SlackAdapterManager is None:
+            self._configs["discord"] = self.config.discord
+            self._adapters["discord"] = DiscordAdapter(self.config.discord.config)
+
+        # Initialize Slack
+        if self.config.slack:
+            if SlackAdapter is None:
                 raise ImportError("Slack adapter not installed. Please install csp-adapter-slack.")
-            self._configs["slack"] = self.config.slack_config
-            self._adapters["slack"] = SlackAdapterManager(self.config.slack_config.adapter_config)
-        if self.config.symphony_config:
+            self._configs["slack"] = self.config.slack
+            self._adapters["slack"] = SlackAdapter(self.config.slack.config)
+
+        # Initialize Symphony
+        if self.config.symphony:
             if SymphonyAdapter is None:
                 raise ImportError("Symphony adapter not installed. Please install csp-adapter-symphony.")
-            self._configs["symphony"] = self.config.symphony_config
-            self._adapters["symphony"] = SymphonyAdapter(self.config.symphony_config.adapter_config)
+            self._configs["symphony"] = self.config.symphony
+            self._adapters["symphony"] = SymphonyAdapter(self.config.symphony.config)
 
-        # Get raw messages from adapter
+        # Fetch bot info for all backends at startup
+        for backend in self._adapters.keys():
+            log.info(f"Fetching bot info for {backend}...")
+            self._fetch_bot_info(backend)
+
+        # Subscribe to messages from all adapters
+        # chatom provides unified Message type across all backends
         messages_in = csp.null_ts(Message)
-        for adapter_type, adapter in self._adapters.items():
-            unrolled_raw_msgs = csp.unroll(adapter.subscribe(**self._configs[adapter_type].adapter_kwargs()))
-            processed_messages = self.raw_message_to_message(adapter_type, unrolled_raw_msgs)
-            messages_in = csp.flatten([messages_in, processed_messages])
-            # messages.append(self.raw_message_to_message(adapter_type, csp.unroll(adapter.subscribe(**self._configs[adapter_type].adapter_kwargs()))))
+        for backend, adapter in self._adapters.items():
+            config = self._configs[backend]
+            raw_msgs = adapter.subscribe(
+                channels=config.channels if config.channels else None,
+                skip_own=True,
+                skip_history=True,
+            )
+            # Unroll the list and convert to individual messages
+            unrolled = csp.unroll(raw_msgs)
+            # Tag messages with their backend
+            tagged = self._tag_message_backend(backend, unrolled)
+            messages_in = csp.flatten([messages_in, tagged])
 
-        # messages_in = csp.flatten(messages)
-
-        # Echo to channel
+        # Set input channel
         channels.set_channel(GatewayChannels.messages_in, messages_in)
 
-        # Extract bot commands from raw feed
-        new_commands_and_authorization_rejections = self.message_to_bot_commands(messages_in)
-        bot_commands = csp.unroll(new_commands_and_authorization_rejections.bot_commands)
+        # Process messages to extract commands
+        command_outputs = self._process_incoming_messages(messages_in)
+        bot_commands = csp.unroll(command_outputs.bot_commands)
         channels.set_channel(GatewayChannels.commands, bot_commands)
 
-        # Process bot commands and get responses/secondary commands
-        messages_and_commands = self.bot_command_handler(channels.get_channel(GatewayChannels.commands))
-        messages_out = csp.flatten([csp.unroll(messages_and_commands.messages), new_commands_and_authorization_rejections.unauthorized_message])
+        # Handle commands and generate responses
+        response_outputs = self._handle_commands(channels.get_channel(GatewayChannels.commands))
+        messages_out = csp.flatten(
+            [
+                csp.unroll(response_outputs.messages),
+                command_outputs.unauthorized_message,
+            ]
+        )
 
-        # Echo to channel
         channels.set_channel(GatewayChannels.messages_out, messages_out)
 
-        # loopback commands to command channels
-        bot_commands_to_loopback = csp.unroll(messages_and_commands.commands)
-        channels.set_channel(GatewayChannels.commands, bot_commands_to_loopback)
+        # Loop back secondary commands
+        secondary_commands = csp.unroll(response_outputs.commands)
+        channels.set_channel(GatewayChannels.commands, secondary_commands)
 
-        # Process messages back to raw messages
-        raw_messages_out = self.message_to_raw_message(messages_out)
+        # Publish responses to adapters
+        # chatom handles conversion to backend-specific formats
+        for backend, adapter in self._adapters.items():
+            backend_messages = self._filter_messages_for_backend(backend, messages_out)
+            adapter.publish(backend_messages)
 
-        # And publish back to adapter
-        for adapter_type, adapter in self._adapters.items():
-            adapter.publish(msg=getattr(raw_messages_out, adapter_type))
-
-        # TODO generalize presence
-        if self._configs.get("symphony") and self._configs["symphony"].set_presence_seconds:
-            self._adapters["symphony"].publish_presence(
-                csp.timer(timedelta(seconds=self._configs["symphony"].set_presence_seconds), Presence.AVAILABLE)
+        # Set up presence updates for Symphony
+        if self.config.symphony and self.config.symphony.set_presence_seconds:
+            presence = csp.timer(
+                timedelta(seconds=self.config.symphony.set_presence_seconds),
+                SymphonyPresenceStatus.AVAILABLE,
             )
+            self._adapters["symphony"].publish_presence(presence)
 
-        # Update user access
-        if self._configs.get("discord") and self._configs["discord"].user_access_channels:
-            log.warning("Slack user access is not fully implemented")
-        if self._configs.get("slack") and self._configs["slack"].user_access_channels:
-            log.warning("Slack user access is not fully implemented")
-        if self._configs.get("symphony") and self._configs["symphony"].user_access_channels:
-            # We want the first query to happen before starting the graph.
-            # This way, if the query fails for some reason
-            # we will raise and not start up the csp.graph,
-            # avoiding any issue of unauthorized user access.
-            self._update_user_access("symphony")
-            if self._configs["symphony"].query_user_access_channels_seconds:
-                self._thread = threading.Thread(target=self._update_user_access_loop, args=("symphony",), daemon=True)
-                self._thread.start()
+        # Set up user access queries
+        for backend in ["symphony", "slack", "discord"]:
+            config = self._configs.get(backend)
+            if config and config.user_access_channels:
+                self._update_user_access(backend)
+                if config.query_user_access_seconds:
+                    self._thread = threading.Thread(
+                        target=self._update_user_access_loop,
+                        args=(backend,),
+                        daemon=True,
+                    )
+                    self._thread.start()
 
-    def _update_user_access(self, adapter_type: str):
-        if adapter_type != "symphony":
-            raise NotImplementedError("Only Symphony is supported for user access for now")
+    @csp.node
+    def _tag_message_backend(self, backend: str, msg: ts[Message]) -> ts[Message]:
+        """Tag a message with its backend."""
+        if csp.ticked(msg):
+            # Ensure metadata exists
+            if msg.metadata is None:
+                msg.metadata = {}
+            # Set backend in metadata if not already set
+            if not msg.metadata.get("backend"):
+                msg.metadata["backend"] = backend
+            return msg
+
+    @csp.node
+    def _filter_messages_for_backend(self, backend: str, msg: ts[Message]) -> ts[Message]:
+        """Filter messages for a specific backend."""
+        if csp.ticked(msg):
+            metadata = msg.metadata or {}
+            msg_backend = metadata.get("backend", "")
+            if msg_backend == backend:
+                return msg
+
+    def _update_user_access(self, backend: str) -> None:
+        """Update authorized users from access channels."""
+        config = self._configs.get(backend)
+        if not config or not config.user_access_channels:
+            return
+
+        adapter = self._adapters.get(backend)
+        if not adapter:
+            return
+
         users: Set[str] = set()
-        for channel_name in self._configs[adapter_type].user_access_channels:
-            user_list = self._configs[adapter_type].adapter_config.get_user_ids_in_room(room_name=channel_name)
-            users.update(user_list)
-        with self._lock:
-            self._authorized_users["symphony"] = users
-
-    def _update_user_access_loop(self, adapter_type: str):
-        if adapter_type != "symphony":
-            raise NotImplementedError("Only Symphony is supported for user access for now")
-        while True:
-            # We start with the sleep first since our first call occurs
-            # outside of this loop
-            time.sleep(self._configs[adapter_type].query_user_access_channels_seconds)
+        for channel_name in config.user_access_channels:
             try:
-                self._update_user_access("symphony'")
+                # Use chatom's backend to fetch channel members
+                members = adapter.backend.sync.fetch_channel_members(channel_name)
+                users.update(m.id for m in members if m.id)
             except Exception:
-                log.exception(f"Error attempting to update user access for {adapter_type}")
+                log.exception(f"Error fetching members from {channel_name}")
 
-    def load_commands(self, command_models: List[BaseCommandModel]):
-        for command_model in command_models:
+        with self._lock:
+            self._authorized_users[backend] = users
+
+    def _update_user_access_loop(self, backend: str) -> None:
+        """Background loop to update user access."""
+        config = self._configs.get(backend)
+        if not config:
+            return
+
+        while True:
+            time.sleep(config.query_user_access_seconds)
             try:
-                # Instantiate to ensure completion
-                command = command_model.command()
+                self._update_user_access(backend)
+            except Exception:
+                log.exception(f"Error updating user access for {backend}")
+
+    def _ensure_backend_connected(self, backend: str) -> Optional[Tuple[Any, asyncio.AbstractEventLoop]]:
+        """Ensure a connected backend exists for the given platform.
+
+        Lazily creates and connects a backend instance that can be reused
+        for API calls like fetching bot info or resolving channels.
+
+        Args:
+            backend: The backend platform name (e.g., "symphony", "slack").
+
+        Returns:
+            Tuple of (connected backend instance, event loop), or None if unavailable.
+        """
+        # Return cached connected backend if available
+        if backend in self._connected_backends:
+            return self._connected_backends[backend]
+
+        adapter = self._adapters.get(backend)
+        if not adapter:
+            log.warning(f"No adapter for backend: {backend}")
+            return None
+
+        # Create a persistent event loop for this backend
+        # Using a dedicated loop avoids "Event loop is closed" errors
+        loop = asyncio.new_event_loop()
+
+        # Create and connect a new backend instance
+        backend_class = type(adapter.backend)
+        new_backend = backend_class(config=adapter.backend.config)
+
+        async def _connect():
+            await new_backend.connect()
+            return new_backend
+
+        try:
+            loop.run_until_complete(_connect())
+            self._connected_backends[backend] = (new_backend, loop)
+            log.info(f"Created connected backend for {backend}")
+            return (new_backend, loop)
+        except Exception:
+            log.exception(f"Failed to create connected backend for {backend}")
+            loop.close()
+            return None
+
+    def _resolve_channel(self, channel_identifier: str, backend: str) -> Optional[Channel]:
+        """Resolve a channel name or ID to a Channel object.
+
+        Uses the shared connected backend for the platform.
+
+        Args:
+            channel_identifier: Channel name or ID to resolve.
+            backend: The backend platform.
+
+        Returns:
+            The resolved Channel object, or None if not found.
+        """
+        result = self._ensure_backend_connected(backend)
+        if not result:
+            return None
+
+        connected_backend, loop = result
+
+        async def _fetch() -> Optional[Channel]:
+            log.info(f"Resolving channel '{channel_identifier}' for {backend}")
+
+            # First try to fetch by name
+            channel = await connected_backend.fetch_channel(name=channel_identifier)
+            if channel:
+                log.info(f"Resolved channel by name: {channel.id} ({channel.name})")
+                return channel
+
+            # If not found by name, try by ID
+            log.info(f"Channel not found by name, trying by ID: {channel_identifier}")
+            channel = await connected_backend.fetch_channel(id=channel_identifier)
+            if channel:
+                log.info(f"Resolved channel by ID: {channel.id} ({channel.name})")
+            return channel
+
+        try:
+            return loop.run_until_complete(_fetch())
+        except Exception:
+            log.exception(f"Error resolving channel: {channel_identifier}")
+            return None
+
+    def load_commands(self, command_models: List[BaseCommandModel]) -> None:
+        """Load command handlers from command models."""
+        log.info(f"Loading {len(command_models)} commands...")
+        for model in command_models:
+            try:
+                command = model.command()
             except TypeError as e:
-                log.critical(f"Incomplete command type - ensure you've implemented all abstract methods: {command_model.command}")
+                log.critical(f"Incomplete command type - implement all abstract methods: {model.command}")
                 raise e
 
-            # Register by name
             command_str = command.command()
+            log.info(f"Registered command: /{command_str}")
             if command_str in self._commands:
                 raise Exception(f"Command already registered: {command_str}\n\t{command}\n\t{self._commands[command_str]}")
 
-            # keep track of model and command
             self._commands[command_str] = command
-            # don't really care about this as its just a bridge to hydra
-            self._command_models.append(command_model)
+            self._command_models.append(model)
 
-    #############
-    # CSP Nodes #
-    #############
-    @csp.node
-    def raw_message_to_message(self, adapter_type: str, raw_message: ts[Any]) -> ts[Message]:
-        return Message.from_raw_message(adapter_type, raw_message)
+    # =========================================================================
+    # Message Processing Nodes
+    # =========================================================================
 
     @csp.node
-    def message_to_raw_message(self, message: ts[Message]) -> Outputs(
-        discord=ts[RawDiscordMessage], slack=ts[RawSlackMessage], symphony=ts[RawSymphonyMessage]
-    ):
-        if message.backend == "symphony":
-            csp.output(symphony=message.to_raw_message("symphony"))
-        elif message.backend == "slack":
-            csp.output(slack=message.to_raw_message("slack"))
-        elif message.backend == "discord":
-            csp.output(discord=message.to_raw_message("discord"))
-        else:
-            raise NotImplementedError(f"Message type not supported: {message.backend}")
+    def _process_incoming_messages(self, msg: ts[Message]) -> Outputs(bot_commands=ts[[BotCommand]], unauthorized_message=ts[Message]):
+        """Process incoming messages to extract bot commands.
 
-    @csp.node
-    def message_to_bot_commands(self, message: ts[Message]) -> Outputs(bot_commands=ts[[BotCommand]], unauthorized_message=ts[Message]):
-        if csp.ticked(message):
-            is_msg_to_bot = False
+        Uses chatom's unified Message type and mention parsing.
+        """
+        if csp.ticked(msg):
             try:
-                is_msg_to_bot, channel, text, entities = self.is_msg_to_bot(message)
-                if not is_msg_to_bot:
-                    # We intentionally avoid logging the message itself
-                    # for security concerns.
+                backend = msg.metadata.get("backend", "")
+                log.info(f"Processing incoming message from {backend}: content={repr(msg.content[:100] if msg.content else '')}")
+                is_to_bot, channel_id, text, mentions = self._is_message_to_bot(msg, backend)
+                log.info(f"is_to_bot={is_to_bot}, channel_id={channel_id}")
+
+                if not is_to_bot:
                     log.info("Ignoring message (not to bot)")
-                else:
-                    if not self.is_authorized(message):
-                        if self._configs[message.backend].unauthorized_msg:
-                            channel = message.channel if message.channel != "IM" else message.user
-                            unauthorized_message = Message(
-                                msg=self._configs[message.backend].unauthorized_msg, channel=channel, source=message.backend
-                            )
-                            csp.output(unauthorized_message=unauthorized_message)
-                    else:
-                        bot_commands = self.extract_bot_commands(message, channel, text, entities)
-                        if bot_commands:
-                            if not isinstance(bot_commands, list):
-                                bot_commands = [bot_commands]
-                            csp.output(bot_commands=bot_commands)
-            except KeyboardInterrupt:
-                raise
+                    return
+
+                if not self._is_authorized(msg, backend):
+                    config = self._configs.get(backend)
+                    if config and config.unauthorized_msg:
+                        response = self._create_response_message(
+                            content=config.unauthorized_msg,
+                            channel_id=channel_id,
+                            backend=backend,
+                        )
+                        csp.output(unauthorized_message=response)
+                    return
+
+                commands = self._extract_commands(msg, backend, channel_id, text, mentions)
+                if commands:
+                    csp.output(bot_commands=commands if isinstance(commands, list) else [commands])
+
             except Exception:
-                # Ignore
-                if is_msg_to_bot:
-                    log.exception(f"Error processing message: {message}")
-                else:
-                    log.exception("Error processing message (not to bot)")
+                log.exception("Error processing message")
 
     @csp.node
-    def bot_command_handler(self, command: ts[BotCommand]) -> Outputs(messages=ts[[Message]], commands=ts[[BotCommand]]):
+    def _handle_commands(self, cmd: ts[BotCommand]) -> Outputs(messages=ts[[Message]], commands=ts[[BotCommand]]):
+        """Handle bot commands and generate responses.
+
+        Supports delayed and scheduled commands via alarms.
+        """
         with csp.alarms():
-            a_scheduled_command: ts[BotCommand] = csp.alarm(BotCommand)
+            a_scheduled: ts[BotCommand] = csp.alarm(BotCommand)
             a_ratelimit: ts[bool] = csp.alarm(bool)
+
         with csp.state():
-            s_buffer = []
-            s_buffer_last = []
-            s_commands_to_process = []
+            s_buffer: List[Message] = []
+            s_buffer_last: List[Message] = []
+            s_to_process: List[BotCommand] = []
 
         with csp.start():
             csp.schedule_alarm(a_ratelimit, timedelta(seconds=self.config.ratelimit_seconds), True)
 
-        if csp.ticked(a_scheduled_command):
-            # check if its still scheduled, or if its been cancelled
-            if a_scheduled_command.id in self._scheduled:
-                # if its still scheduled, then lets run it
-                s_commands_to_process.append(a_scheduled_command)
+        # Handle scheduled command triggers
+        if csp.ticked(a_scheduled):
+            if a_scheduled.command in self._scheduled:
+                s_to_process.append(a_scheduled)
 
-                # reschedule if its an interval command
-                if hasattr(a_scheduled_command, "schedule"):
+                # Reschedule recurring commands
+                if a_scheduled.schedule:
                     now = csp.now()
-                    next_time = croniter(a_scheduled_command.schedule, now).get_next(datetime)
+                    next_time = croniter(a_scheduled.schedule, now).get_next(datetime)
                     if next_time >= now:
-                        self._scheduled[a_scheduled_command.id] = a_scheduled_command
-                        csp.schedule_alarm(a_scheduled_command, next_time, a_scheduled_command)
-                    else:
-                        log.warning(f"Scheduled time in past: current-time: {now} schedule time: {next_time}")
+                        csp.schedule_alarm(a_scheduled, next_time, a_scheduled)
                 else:
-                    # remove from schedule if it was a delayed command
-                    self._scheduled.pop(a_scheduled_command.id, None)
+                    self._scheduled.pop(a_scheduled.command, None)
 
-        if csp.ticked(command):
+        # Handle new commands
+        if csp.ticked(cmd):
             now = csp.now()
-            if hasattr(command, "delay") and command.delay >= now:
-                self._scheduled[command.id] = command
-                csp.schedule_alarm(a_scheduled_command, command.delay, command)
-            elif hasattr(command, "schedule"):
-                next_time = croniter(command.schedule, now).get_next(datetime)
+
+            # Check for delayed execution
+            if cmd.delay and cmd.delay >= now:
+                self._scheduled[cmd.command] = cmd
+                csp.schedule_alarm(a_scheduled, cmd.delay, cmd)
+            # Check for scheduled execution
+            elif cmd.schedule:
+                next_time = croniter(cmd.schedule, now).get_next(datetime)
                 if next_time >= now:
-                    self._scheduled[command.id] = command
-                    csp.schedule_alarm(a_scheduled_command, next_time, command)
-                else:
-                    log.warning(f"Scheduled time in past: current-time: {now} schedule time: {next_time}")
+                    self._scheduled[cmd.command] = cmd
+                    csp.schedule_alarm(a_scheduled, next_time, cmd)
             else:
-                s_commands_to_process.append(command)
+                s_to_process.append(cmd)
 
-        if csp.ticked(command) or csp.ticked(a_scheduled_command):
-            commands_to_process_next_cycle = []
-            for command_to_process in s_commands_to_process:
-                # this returns either another bot command, or a message
-                command_or_message_or_none = self.run_bot_command(command_to_process)
+        # Process commands
+        if csp.ticked(cmd) or csp.ticked(a_scheduled):
+            next_cycle_commands = []
 
-                if command_or_message_or_none:
-                    # promote to list
-                    if not isinstance(command_or_message_or_none, list):
-                        command_or_message_or_none = [command_or_message_or_none]
+            for command in s_to_process:
+                log.debug(f"Executing command: {command.command}")
+                result = self._execute_command(command)
 
-                    for command_or_message in command_or_message_or_none:
-                        if isinstance(command_or_message, Message):
-                            # if its a message, emit it
-                            s_buffer.append(command_or_message)
-                        elif isinstance(command_or_message, BotCommand):
-                            # reprocess it next cycle
-                            commands_to_process_next_cycle.append(command_or_message)
-            if commands_to_process_next_cycle:
-                csp.output(commands=commands_to_process_next_cycle)
+                log.debug(f"Command {command.command} execution returned: {result}")
+                if result:
+                    results = result if isinstance(result, list) else [result]
+                    for item in results:
+                        log.debug(f"Processing result item type: {type(item).__name__}, isinstance(Message): {isinstance(item, Message)}")
+                        if isinstance(item, Message):
+                            log.debug(f"Adding message to buffer: {item.content[:100] if item.content else 'empty'}...")
+                            s_buffer.append(item)
+                        elif isinstance(item, BotCommand):
+                            next_cycle_commands.append(item)
+                else:
+                    log.debug(f"Command {command.command} returned no result")
 
-            # reinitialize state
-            s_commands_to_process = []
+            if next_cycle_commands:
+                csp.output(commands=next_cycle_commands)
 
+            s_to_process = []
+
+        # Rate-limited output
         if csp.ticked(a_ratelimit):
-            if len(s_buffer) > 0:
-                # deduplicate messages to avoid spamming
-                # first, remove duplicates directly
-                s_buffer = set(s_buffer)
-                # now intersect with previous tick to avoid spam
-                s_buffer = s_buffer - set(s_buffer_last)
-                # convert back to list
-                s_buffer = list(s_buffer)
-
-                # output
-                csp.output(messages=s_buffer)
-
-                # store this round in _last
+            if s_buffer:
+                # Deduplicate by message ID (Message is not hashable)
+                seen_ids = {m.id for m in s_buffer_last if m.id}
+                output = [m for m in s_buffer if m.id not in seen_ids]
+                if output:
+                    csp.output(messages=output)
                 s_buffer_last = s_buffer.copy()
-
-                # and reset for next
                 s_buffer = []
 
             csp.schedule_alarm(a_ratelimit, timedelta(seconds=self.config.ratelimit_seconds), True)
 
-    ##############
-    # Processors #
-    ##############
-    def bot_commands_from_command_string(self, tokens: List[str], message: Message, channel: str, entity_map: Dict[str, Tuple[str, str]] = None):
-        # Check malformed, this should never happen
-        if len(tokens) == 0:
-            # TODO malformed
-            log.critical(f"Malformed command: {message}")
-            return
+    # =========================================================================
+    # Message Analysis using chatom
+    # =========================================================================
 
-        command = tokens[0].replace("/", "", 1)
-        if command not in self._commands:
-            # TODO print help w/ unrecognized command
-            log.critical(f"Unrecognized/unregistered command: {command} - {message}")
-            return
+    def _is_message_to_bot(self, msg: Message, backend: str) -> Tuple[bool, str, str, List[User]]:
+        """Check if a message is directed at the bot.
 
-        # now interrogate the command string to align
-        # with these important bits
-        command_args = []
-        target_tags = []
-        target_channel = ""
-        skip_next = False
-        for i, token in enumerate(tokens):
-            # this is the command, skip
-            if i == 0:
-                continue
+        Uses chatom's mention parsing to detect bot mentions.
 
-            # this has been processed in a prior step
-            if skip_next:
-                skip_next = False
-                continue
+        Returns:
+            Tuple of (is_to_bot, channel_id, text_content, mentioned_users)
+        """
+        config = self._configs.get(backend)
+        if not config:
+            return False, "", "", []
 
-            # TODO: remove, deprecated
-            if token == "/room":
-                # /room should be followed by room name
-                # room name with special characters must be surrounded with double quotes
-                # ROOM NAMES WITH DOUBLE QUOTES IN THEM ARE NOT ALLOWED
-                if i + 1 >= len(tokens) or tokens[i + 1].startswith("@"):
-                    # malformed
-                    log.critical(f"Malformed room name: {message}")
-                else:
-                    # grab the channel
-                    target_channel = tokens[i + 1]
-                    skip_next = True
-                    continue
+        # Get content and channel - extract plain text for Symphony
+        raw_content = msg.content or ""
+        if backend == "symphony":
+            # Symphony sends HTML/MessageML - extract plain text
+            from chatom.symphony import SymphonyMessage
 
-            if token == "/channel":
-                # /channel should be followed by channel name
-                # channel name with special characters must be surrounded with double quotes
-                # CHANNEL NAMES WITH DOUBLE QUOTES IN THEM ARE NOT ALLOWED
-                if i + 1 >= len(tokens) or tokens[i + 1].startswith("@"):
-                    # malformed
-                    log.critical(f"Malformed channel name: {message}")
-                else:
-                    # grab the channel
-                    target_channel = tokens[i + 1]
-                    skip_next = True
-                    continue
-
-            # entity detection
-            if entity_map and token in entity_map:
-                # entity_map stores (entity_text, tag_value) where:
-                # - For Slack: entity_text is "@USER_ID", tag_value is display name
-                # - For Symphony/Discord: entity_text is "@DisplayName", tag_value is user ID
-                entity_text, tag_value = entity_map[token]
-                if message.backend == "slack":
-                    # For Slack: entity_text has the user ID (with @ prefix), tag_value is display name
-                    # Strip @ from entity_text to get clean user ID matching source.id format
-                    user_id = entity_text[1:] if entity_text.startswith("@") else entity_text
-                    target_tags.append(User(name=tag_value, id=user_id, backend=message.backend))
-                else:
-                    # Symphony/Discord: entity_text is display name, tag_value is user ID
-                    target_tags.append(User(name=entity_text, id=tag_value, backend=message.backend))
-                continue
-
-            command_args.append(token)
-
-        # if target room hasnt been set, reply in room message was sent
-        if target_channel == "":
-            target_channel = channel
-        return command, command_args, target_channel, target_tags
-
-    def _get_bot_tag(self, backend: str) -> str:
-        # TODO: normalize across adapters
-        if backend == "slack":
-            return self._adapters[backend]._get_user_from_name(self._configs[backend].bot_name)
-        return self._configs[backend].bot_name
-
-    def extract_bot_commands(self, message: Message, channel: str, text: str, entities: List[Tag]) -> Optional[Union[List[BotCommand], BotCommand]]:
-        try:
-            # allow @<bot name> /<cmd>
-            if (
-                text.startswith("/")
-                or text.startswith(f"@{self._get_bot_tag(message.backend)} /")
-                or text.startswith(f"<@{self._get_bot_tag(message.backend)}> /")
-            ):
-                # most names and tags will have spaces, so before we tokenize lets replace those
-                entity_map: Dict[str, Tuple[str, str]] = {}
-                # entity_map is mapping of entity placeholder to name and user id
-                # e.g. @CSP Bot /command @Tim Paine
-                #      ENTITY_0 -> ("@CSP Bot", "123456789")
-                #      ENTITY_1 -> ("@Tim Paine", "987654321")
-                for i, entity in enumerate(entities):
-                    entity_placeholder = f"ENTITY_{i}"
-
-                    if message.backend == "symphony":
-                        text = text.replace(entity, entity_placeholder, 1)
-                    elif message.backend == "slack":
-                        # NOTE: don't replace the @ in front of entity, to match other frameworks
-                        text = text.replace(f"<{entity}>", entity_placeholder, 1)
-                    elif message.backend == "discord":
-                        text = text.replace(f"<{entity}>", entity_placeholder, 1)
-
-                    # NOTE: in symphony
-                    entity_map[entity_placeholder] = (entity, message.tags[i])
-
-                tokens = next(reader(StringIO(text), delimiter=" ", quotechar='"', skipinitialspace=True))
-
-                # Check if the first token is the bot being tagged - if so, remove it
-                if tokens[0] in entity_map:
-                    entity_text, tag_value = entity_map[tokens[0]]
-                    bot_tag = self._get_bot_tag(message.backend)
-                    if message.backend == "slack":
-                        # Slack: entity_text is "@USER_ID", strip @ and compare with bot_tag (user ID)
-                        entity_user_id = entity_text[1:] if entity_text.startswith("@") else entity_text
-                        if entity_user_id == bot_tag:
-                            tokens = tokens[1:]
-                    else:
-                        # Symphony/Discord: entity_text contains @name
-                        if entity_text == f"@{bot_tag}":
-                            tokens = tokens[1:]
-
-                ret = self.bot_commands_from_command_string(tokens, message, channel, entity_map)
-                if not ret:
-                    return
-                command, command_args, target_channel, target_tags = ret
-
-                # determine the command's supported backends and skip if unsupported
-                backends: Backend = self._commands[command].backends()
-                if backends and message.backend not in backends:
-                    log.warning(f"Command {command} not supported on backend {message.backend}")
-                    return
-
-                variant: CommandVariant = self._commands[command].kind()
-
-                # determine the command variant
-                variant: CommandVariant = self._commands[command].kind()
-
-                # parse out the required info from the command
-                command_instance = BotCommand(
-                    command=command,
-                    args=tuple(command_args),
-                    source=User(name=message.user, id=message.user_id, backend=message.backend),
-                    targets=tuple(target_tags),
-                    channel=target_channel,
-                    backend=message.backend,
-                    variant=variant,
-                    message=message,
-                )
-
-                command_runner = self._commands[command]
-
-                # TODO generalize by interrogating the command signature
-                if isinstance(command_runner, ScheduleCommand):
-                    # Special command, gets access to schedule of commands
-                    return command_runner.preexecute(command_instance, self._scheduled, self)
-                elif isinstance(command_runner, StatusCommand):
-                    # Special command, gets access to status of commands
-                    return command_runner.preexecute(command_instance, self)
-                return command_runner.preexecute(command_instance)
+            if isinstance(msg, SymphonyMessage):
+                content = msg._parse_symphony_content(raw_content)
             else:
-                log.info(f"Defaulting to help command from message to bot with no command: {message}")
-                command_runner = self._commands["help"]
-                command_instance = BotCommand(
-                    command="help",
-                    args=tuple(),
-                    source=User(name=message.user, id=message.user_id, backend=message.backend),
-                    channel=channel,
-                    backend=message.backend,
-                    variant=command_runner.kind(),
-                    message=message,
-                )
-                return command_runner.preexecute(command_instance)
+                # Manual HTML stripping for non-SymphonyMessage
+                import html
+                import re
 
-        except KeyboardInterrupt:
-            raise
+                content = raw_content
+                content = re.sub(r"<br\s*/?>\s*", "\n", content, flags=re.IGNORECASE)
+                content = re.sub(r"</p>\s*", "\n", content, flags=re.IGNORECASE)
+                content = re.sub(r"</div>\s*", "\n", content, flags=re.IGNORECASE)
+                content = re.sub(r"<[^>]+>", "", content)
+                content = html.unescape(content).strip()
+        else:
+            content = raw_content
+        channel_id = msg.channel_id or (msg.channel.id if msg.channel else "")
+
+        # Get mentioned users from the message directly (already parsed by chatom)
+        # This is more reliable than re-parsing from stripped content
+        mentioned_users = list(msg.mentions) if msg.mentions else []
+
+        # If no mentions on message, try extracting from Symphony data field
+        if not mentioned_users and backend == "symphony":
+            from chatom.symphony import SymphonyMessage
+
+            if isinstance(msg, SymphonyMessage) and msg.data:
+                mention_ids = SymphonyMessage.extract_mentions_from_data(msg.data)
+                for uid in mention_ids:
+                    mentioned_users.append(User(id=str(uid), name=""))
+
+        # If still no mentions, try parsing from raw content (before stripping)
+        if not mentioned_users:
+            mention_matches = parse_mentions(raw_content, backend)
+            for match in mention_matches:
+                user = User(id=match.user_id, name="")
+                mentioned_users.append(user)
+
+        # Get bot ID and name from backend (auto-detected)
+        bot_id = self._get_bot_id(backend)
+        bot_name = self._get_bot_name(backend)
+
+        # Debug logging
+        log.info(
+            f"[{backend}] _is_message_to_bot: bot_id={bot_id}, mentions={[u.id for u in mentioned_users]}, msg.data={getattr(msg, 'data', None)}"
+        )
+
+        # Check if this is a DM (always to bot)
+        is_dm = self._is_direct_message(msg, backend)
+        log.debug(f"[{backend}] is_dm={is_dm}")
+
+        if is_dm:
+            # In DMs, accept if author is not the bot
+            author_id = msg.author.id if msg.author else msg.author_id
+            if author_id and author_id != bot_id:
+                log.debug(f"[{backend}] Accepting DM from {author_id}")
+                return True, channel_id, content, mentioned_users
+
+        # Check if bot is mentioned by ID
+        if bot_id and any(u.id == bot_id for u in mentioned_users):
+            log.debug(f"[{backend}] Bot mentioned by ID")
+            return True, channel_id, content, mentioned_users
+
+        # Check for bot name mention in text
+        if bot_name and f"@{bot_name}" in content:
+            log.debug(f"[{backend}] Bot mentioned by name")
+            return True, channel_id, content, mentioned_users
+
+        log.debug(f"[{backend}] Message not to bot")
+        return False, "", content, mentioned_users
+
+    def _is_direct_message(self, msg: Message, backend: str) -> bool:
+        """Check if message is a direct message.
+
+        Uses the message's is_dm property which checks channel.is_dm and metadata.
+        """
+        # Use the base class is_dm property which handles all the logic
+        if msg.is_dm:
+            return True
+
+        # Additional backend-specific fallbacks for edge cases
+        if backend == "slack":
+            # Slack DM channel IDs start with 'D'
+            channel_id = msg.channel_id or (msg.channel.id if msg.channel else "")
+            if channel_id and channel_id.startswith("D"):
+                return True
+
+        elif backend == "symphony":
+            # Check channel object for stream_type
+            if msg.channel:
+                stream_type = getattr(msg.channel, "stream_type", None)
+                if stream_type is not None:
+                    # SymphonyStreamType.IM or string "IM"
+                    return str(stream_type) == "IM" or stream_type == "IM"
+
+        elif backend == "discord":
+            # Check channel object for DM type
+            if msg.channel:
+                channel_type = getattr(msg.channel, "channel_type", None)
+                if channel_type is not None:
+                    type_str = str(channel_type)
+                    if "DM" in type_str or "DIRECT" in type_str:
+                        return True
+
+        return False
+
+    def _fetch_bot_info(self, backend: str) -> None:
+        """Fetch bot info from the backend API and cache it.
+
+        Uses the shared connected backend for the platform.
+        """
+        if backend in self._bot_user_ids and backend in self._bot_names:
+            return  # Already cached
+
+        result = self._ensure_backend_connected(backend)
+        if not result:
+            return
+
+        connected_backend, loop = result
+
+        async def _fetch():
+            bot_info = await connected_backend.get_bot_info()
+            if bot_info:
+                self._bot_user_ids[backend] = bot_info.id
+                self._bot_names[backend] = bot_info.name or bot_info.display_name or ""
+                log.info(f"Bot info for {backend}: id={bot_info.id}, name={self._bot_names[backend]}")
+
+        try:
+            loop.run_until_complete(_fetch())
+        except Exception as e:
+            log.warning(f"Error fetching bot info for {backend}: {e}")
+
+    def _get_bot_id(self, backend: str) -> Optional[str]:
+        """Get the bot's user ID for a backend."""
+        if backend in self._bot_user_ids:
+            return self._bot_user_ids[backend]
+
+        # Try to fetch from API
+        self._fetch_bot_info(backend)
+        return self._bot_user_ids.get(backend)
+
+    def _get_bot_name(self, backend: str) -> Optional[str]:
+        """Get the bot's username for a backend.
+
+        First checks config for explicit bot_name, then checks cache,
+        then tries to fetch from backend API.
+        """
+        # Check config first (explicit override)
+        config = self._configs.get(backend)
+        if config and config.bot_name:
+            return config.bot_name
+
+        # Check cache
+        if backend in self._bot_names:
+            return self._bot_names[backend]
+
+        # Try to fetch from API
+        self._fetch_bot_info(backend)
+        return self._bot_names.get(backend)
+
+    def _is_authorized(self, msg: Message, backend: str) -> bool:
+        """Check if the message author is authorized."""
+        config = self._configs.get(backend)
+        if not config or not config.user_access_channels:
+            return True
+
+        author_id = msg.author.id if msg.author else msg.author_id
+        if not author_id:
+            return False
+
+        with self._lock:
+            authorized = self._authorized_users.get(backend, set())
+            return author_id in authorized
+
+    # =========================================================================
+    # Command Extraction and Execution
+    # =========================================================================
+
+    def _extract_commands(
+        self,
+        msg: Message,
+        backend: str,
+        channel_id: str,
+        text: str,
+        mentions: List[User],
+    ) -> Optional[Union[BotCommand, List[BotCommand]]]:
+        """Extract bot commands from a message.
+
+        Uses chatom's entity recognition to identify mentioned users.
+        """
+        try:
+            content = text.strip()
+
+            # Strip bot mention from beginning if present
+            bot_name = self._get_bot_name(backend)
+            if bot_name and content.startswith(f"@{bot_name}"):
+                content = content[len(f"@{bot_name}") :].strip()
+
+            log.info(f"Extracting command from: {repr(content)}")
+
+            # Check for command syntax (supports both / and ! prefixes)
+            if not content.startswith("/") and not content.startswith("!"):
+                # If tagged but no command, show help
+                log.info("No command prefix, showing help")
+                return self._create_help_command(msg, backend, channel_id)
+
+            # Tokenize the command
+            tokens = list(reader(StringIO(content), delimiter=" ", quotechar='"', skipinitialspace=True))[0]
+            if not tokens:
+                return None
+
+            # Parse command and arguments (strip both / and ! prefixes)
+            command_name = tokens[0].lstrip("/!").lower()
+            log.info(f"Parsed command_name: {repr(command_name)}, registered commands: {list(self._commands.keys())}")
+            if command_name not in self._commands:
+                log.warning(f"Unknown command: {command_name}")
+                return self._create_help_command(msg, backend, channel_id)
+
+            # Filter out the bot from mentions before parsing args
+            bot_id = self._get_bot_id(backend)
+            filtered_mentions = [u for u in mentions if u.id != bot_id]
+
+            # Parse arguments and tagged users
+            args, target_users, target_channel = self._parse_command_args(tokens[1:], filtered_mentions, backend)
+
+            # Resolve channel name to ID if a target channel was specified
+            target_channel_name = ""
+            if target_channel:
+                resolved_channel = self._resolve_channel(target_channel, backend)
+                if resolved_channel:
+                    target_channel = resolved_channel.id
+                    target_channel_name = resolved_channel.name or target_channel
+                else:
+                    log.warning(f"Could not resolve channel: {target_channel}")
+                    # Keep the original value - it might already be an ID
+                    target_channel_name = target_channel
+
+            # Use original channel if not specified
+            if not target_channel:
+                target_channel = channel_id
+
+            # Create command
+            command_runner = self._commands[command_name]
+
+            # Check backend support
+            if command_runner.backends() and backend not in command_runner.backends():
+                log.warning(f"Command {command_name} not supported on {backend}")
+                return None
+
+            # Build source user from chatom Message
+            source = User(
+                id=msg.author.id if msg.author else msg.author_id or "",
+                name=msg.author.name if msg.author else "",
+                email=getattr(msg.author, "email", "") if msg.author else "",
+                handle=getattr(msg.author, "handle", "") if msg.author else "",
+            )
+
+            # Build target users - they are already chatom Users
+            targets = tuple(target_users)
+
+            # Get channel name - use resolved name if we resolved a target channel
+            channel_name = target_channel_name
+            if not channel_name and msg.channel:
+                if hasattr(msg.channel, "name"):
+                    channel_name = msg.channel.name or ""
+                elif isinstance(msg.channel, str):
+                    channel_name = ""  # Channel is just an ID string
+
+            bot_cmd = BotCommand(
+                command=command_name,
+                args=tuple(args),
+                source=source,
+                targets=targets,
+                channel_id=target_channel,
+                channel_name=channel_name,
+                backend=backend,
+                variant=command_runner.kind(),
+                message=msg,
+                delay=None,
+                schedule="",
+                times_run=0,
+            )
+
+            # Pre-execute hooks
+            if isinstance(command_runner, ScheduleCommand):
+                return command_runner.preexecute(bot_cmd, self._scheduled, self)
+            elif isinstance(command_runner, StatusCommand):
+                return command_runner.preexecute(bot_cmd, self)
+            return command_runner.preexecute(bot_cmd)
+
         except Exception:
-            # Ignore
-            # NOTE: message itself may be malformed!
-            try:
-                log.exception(f"Error processing message: {message}")
-            except Exception:
-                log.exception("Error processing message (could not log message itself)")
+            log.exception("Error extracting command")
+            return None
 
-    def run_bot_command(self, command_instance: BotCommand) -> Optional[Union[List[Message], List[BotCommand]]]:
-        # grab the important bits of the command
-        command_runner: BaseCommand = self._commands[command_instance.command]
-        # num_recipients: int = command_runner.num_recipients()
+    def _parse_command_args(
+        self,
+        tokens: List[str],
+        mentions: List[User],
+        backend: str,
+    ) -> Tuple[List[str], List[User], str]:
+        """Parse command arguments, extracting tagged users and channels."""
+        args = []
+        target_users = []
+        target_channel = ""
+        skip_indices = set()
 
-        # execute the command to get a response
+        # For Symphony, we need special handling since mentions in the stripped
+        # text are names like "@Paine," but our mentions list has user IDs.
+        # We'll match @ tokens with mentions in order, and skip following name tokens.
+        symphony_mention_iter = iter(mentions) if backend == "symphony" else None
+
+        for i, token in enumerate(tokens):
+            if i in skip_indices:
+                continue
+
+            # Handle /channel, /room, !channel, or !room directive
+            if token in ("/channel", "/room", "!channel", "!room"):
+                if i + 1 < len(tokens):
+                    target_channel = tokens[i + 1]
+                    skip_indices.add(i + 1)
+                continue
+
+            # Check if token is a mention placeholder
+            is_mention = False
+
+            # For Symphony: if token starts with @, it's a mention - match with next mention in list
+            # Also skip following tokens that look like they're part of the name (no @ prefix, no /)
+            if backend == "symphony" and token.startswith("@") and symphony_mention_iter:
+                try:
+                    user = next(symphony_mention_iter)
+                    target_users.append(user)
+                    is_mention = True
+                    # Skip following tokens that are likely part of the multi-word name
+                    # (they don't start with @ or / and aren't commands)
+                    j = i + 1
+                    while j < len(tokens):
+                        next_token = tokens[j]
+                        if next_token.startswith("@") or next_token.startswith("/") or next_token.startswith("!"):
+                            break
+                        skip_indices.add(j)
+                        j += 1
+                except StopIteration:
+                    pass  # No more mentions to match
+
+            # For other backends: match by user ID
+            if not is_mention:
+                for user in mentions:
+                    if user.id in token or f"@{user.id}" == token:
+                        target_users.append(user)
+                        is_mention = True
+                        break
+
+            if not is_mention:
+                args.append(token)
+
+        return args, target_users, target_channel
+
+    def _create_help_command(self, msg: Message, backend: str, channel_id: str) -> BotCommand:
+        """Create a help command when no specific command is given."""
+        command_runner = self._commands.get("help")
+        if not command_runner:
+            return None
+
+        source = User(
+            id=msg.author.id if msg.author else msg.author_id or "",
+            name=msg.author.name if msg.author else "",
+            email=getattr(msg.author, "email", "") if msg.author else "",
+            handle=getattr(msg.author, "handle", "") if msg.author else "",
+        )
+
+        # Handle channel name - SlackMessage.channel is a string, not a Channel object
+        channel_name = ""
+        if msg.channel:
+            if hasattr(msg.channel, "name"):
+                channel_name = msg.channel.name or ""
+            elif isinstance(msg.channel, str):
+                channel_name = ""  # Can't get name from channel ID string
+
+        return BotCommand(
+            command="help",
+            args=(),
+            source=source,
+            targets=(),
+            channel_id=channel_id,
+            channel_name=channel_name,
+            backend=backend,
+            variant=command_runner.kind(),
+            message=msg,
+            delay=None,
+            schedule="",
+            times_run=0,
+        )
+
+    def _execute_command(self, cmd: BotCommand) -> Optional[Union[Message, List[Message], BotCommand, List[BotCommand]]]:
+        """Execute a bot command and return responses."""
+        command_runner = self._commands.get(cmd.command)
+        if not command_runner:
+            return None
+
         try:
             if isinstance(command_runner, HelpCommand):
-                # Special command, gets access to all other commands
-                responses = command_runner.execute(command_instance, MappingProxyType(self._commands))
+                responses = command_runner.execute(cmd, MappingProxyType(self._commands))
             elif isinstance(command_runner, ScheduleCommand):
-                # Special command, gets access to schedule of commands
-                responses = command_runner.execute(command_instance, self._scheduled)
+                responses = command_runner.execute(cmd, self._scheduled)
             else:
-                # normal command
-                responses = command_runner.execute(command_instance)
-        except BaseException:
-            log.exception(f"Error executing command for msg: {command_instance.message}")
-            return
+                responses = command_runner.execute(cmd)
+        except Exception:
+            log.exception(f"Error executing command: {cmd.command}")
+            return None
 
-        if not isinstance(responses, list):
-            # convert to list
-            responses = [responses]
+        log.debug(f"Command {cmd.command} returned: {type(responses)}: {responses}")
 
-        # remap all IM rooms to the user id so that bot
-        # can DM correctly
-        if responses:
-            for response in responses:
-                if isinstance(response, Message):
-                    # replace "IM" convenience with actual user
-                    if response.channel == "IM":
-                        response.channel = command_instance.message.user
-            return responses
+        if not responses:
+            log.debug(f"Command {cmd.command} returned empty response, returning None")
+            return None
 
-    ###########
-    # Helpers #
-    ###########
-    @staticmethod
-    def parse_msg(msg: Message):
-        if msg.backend == "symphony":
-            soup = BeautifulSoup(msg.msg, features="html.parser")
-            text = soup.get_text()
-            entities = [e.text for e in soup.find_all("span", class_="entity")]
+        results = responses if isinstance(responses, list) else [responses]
 
-            # clean up a bit
-            text = text.strip()
-            while "  " in text:
-                text = text.replace("  ", " ")
-        elif msg.backend == "slack":
-            text = msg.msg
-            # NOTE: tag is like `<@USER_ID>` so prune to match canonical `@USER_ID`
-            entities = [m[1:-1] for m in SLACK_ENTITY_REGEX.findall(text)]
-        elif msg.backend == "discord":
-            text = msg.msg
-            # NOTE: tag is like `<@USER_ID>` so prune to match canonical `@USER_ID`
-            entities = [m[1:-1] for m in DISCORD_ENTITY_REGEX.findall(text)]
-        return text, entities
+        # Convert BotMessage to chatom Message if needed, and ensure metadata is set
+        processed = []
+        for r in results:
+            log.debug(f"Processing response item: {type(r)}")
+            if isinstance(r, BotMessage):
+                processed.append(self._bot_message_to_chatom(r))
+            elif isinstance(r, Message):
+                # Ensure metadata has backend set for filtering
+                if r.metadata is None:
+                    r.metadata = {}
+                if not r.metadata.get("backend"):
+                    # Use the message's backend field if set, otherwise use command's backend
+                    r.metadata["backend"] = r.backend or cmd.backend
+                processed.append(r)
+            else:
+                processed.append(r)
 
-    def is_msg_to_bot(self, msg: Message) -> Tuple[bool, str, str, List[Tag]]:
-        text, entities = Bot.parse_msg(msg)
+        log.debug(f"Returning {len(processed)} processed messages for {cmd.command}")
+        return processed
 
-        # remove content that is in the reply
-        if msg.backend == "symphony":
-            text = text.rsplit("_———————————", 1)[-1]
+    def _bot_message_to_chatom(self, bot_msg: BotMessage) -> Message:
+        """Convert a BotMessage to a chatom Message."""
+        return Message(
+            content=bot_msg.content,
+            channel=Channel(id=bot_msg.channel_id, name=bot_msg.channel_name),
+            thread_id=bot_msg.thread_id,
+            mention_ids=list(bot_msg.mentions) if bot_msg.mentions else [],
+            metadata={"backend": bot_msg.backend},
+        )
 
-        # NOTE: return is:
-        # is_msg_to_bot, channel, text, entities
-        # if its a DM to bot, the channel will be the user's name
-        # if the bot is not tagged, first argument is false so ignore second arg
-        bot_name = self._configs[msg.backend].bot_name
-        bot_tag_to_find = self._get_bot_tag(msg.backend)
+    def _create_response_message(
+        self,
+        content: str,
+        channel_id: str,
+        backend: str,
+        thread_id: str = "",
+        mentions: List[User] = None,
+    ) -> Message:
+        """Create a response message with chatom.
 
-        # Check if bot is tagged - use exact entity matching to avoid
-        # "@Cubist Bot" matching inside "@Cubist Bot Dev"
-        if msg.backend == "symphony":
-            # For Symphony: entities contain the exact tagged names like "@Cubist Bot Dev"
-            bot_tag = f"@{bot_tag_to_find}" in entities
-        else:
-            # For Slack/Discord: entities contain user IDs, use substring match on text
-            bot_tag = f"@{bot_tag_to_find}" in text
+        Uses chatom's mention_user_for_backend for cross-platform mentions.
+        """
+        # Build mention string if users provided
+        mention_str = ""
+        if mentions:
+            mention_parts = [mention_user_for_backend(u, backend) for u in mentions]
+            mention_str = " ".join(mention_parts) + " "
 
-        if bot_tag:
-            return True, msg.channel, text, entities
-        elif msg.channel == "IM" and msg.user != bot_name:
-            return True, msg.user, text, entities
-        return False, "", text, entities
-
-    def is_authorized(self, msg: Message) -> bool:
-        if msg.backend == "symphony":
-            if not self.config.symphony_config.user_access_channels:
-                return True
-            with self._lock:
-                res = msg.user_id in self._authorized_users[msg.backend]
-            return res
-        elif msg.backend == "slack":
-            # TODO implement
-            return True
-        elif msg.backend == "discord":
-            # TODO implement
-            return True
+        return Message(
+            content=mention_str + content,
+            channel=Channel(id=channel_id),
+            thread_id=thread_id,
+            mention_ids=[u.id for u in (mentions or [])],
+            metadata={"backend": backend},
+        )
