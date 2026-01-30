@@ -1,12 +1,23 @@
-from typing import List, Optional, Union
+"""Bot configuration using chatom backend configurations.
 
-from ccflow import BaseModel
+This module provides configuration classes that wrap chatom's
+backend-specific configurations with bot-specific settings.
+"""
+
+from typing import List, Optional, Set
+
 from pydantic import Field
 
-from .backends import DiscordAdapterConfig, SlackAdapterConfig, SymphonyAdapterConfig
+from ccflow import BaseModel
+
+from .backends import (
+    DiscordConfig as ChatomDiscordConfig,
+    SlackConfig as ChatomSlackConfig,
+    SymphonyConfig as ChatomSymphonyConfig,
+)
 
 __all__ = (
-    "BaseConfig",
+    "BackendConfig",
     "BotConfig",
     "DiscordConfig",
     "SlackConfig",
@@ -14,54 +25,83 @@ __all__ = (
 )
 
 
-class BaseConfig(BaseModel):
-    bot_name: str = Field(description="Name of the bot as displayed")
-    adapter_config: Union[DiscordAdapterConfig, SlackAdapterConfig, SymphonyAdapterConfig]
+class BackendConfig(BaseModel):
+    """Base configuration for a bot backend.
+
+    This wraps a chatom backend config with bot-specific settings.
+    The bot name is auto-detected from the backend if not provided.
+    """
+
+    bot_name: str = Field(
+        default="",
+        description="Name of the bot. Auto-detected from backend if empty.",
+    )
+
+    channels: Set[str] = Field(
+        default_factory=set,
+        description="Channels/rooms to subscribe to. Empty means all.",
+    )
 
     user_access_channels: List[str] = Field(
-        [],
-        description="If non-empty, only users from these channels can interact with the bot. However, they can interact with the bot in any channel.",
+        default_factory=list,
+        description="If non-empty, only users from these channels can interact with the bot.",
     )
-    query_user_access_channels_seconds: int = Field(
-        300, description="How frequently to query the 'user_access_channels' for a list of allowed users. If 0, this is only queried once at startup."
+
+    query_user_access_seconds: int = Field(
+        default=300,
+        description="How frequently to query user access channels. 0 means only at startup.",
     )
+
     unauthorized_msg: Optional[str] = Field(
-        "You are not authorized to interact with this bot.",
-        description="What message to send (if any) when an unauthorized user attempts to interact with the bot. This is only relevant if 'user_access_channels' is set. If None, no message is sent.",
+        default="You are not authorized to interact with this bot.",
+        description="Message to send when unauthorized user interacts. None means no message.",
     )
 
-    def adapter_kwargs(self):
-        return {}
+
+class DiscordConfig(BackendConfig):
+    """Discord bot configuration."""
+
+    config: ChatomDiscordConfig = Field(
+        default_factory=ChatomDiscordConfig,
+        description="Chatom Discord configuration.",
+    )
 
 
-class DiscordConfig(BaseConfig):
-    adapter_config: DiscordAdapterConfig
+class SlackConfig(BackendConfig):
+    """Slack bot configuration."""
+
+    config: ChatomSlackConfig = Field(
+        default_factory=ChatomSlackConfig,
+        description="Chatom Slack configuration.",
+    )
 
 
-class SlackConfig(BaseConfig):
-    adapter_config: SlackAdapterConfig
+class SymphonyConfig(BackendConfig):
+    """Symphony bot configuration."""
 
+    config: ChatomSymphonyConfig = Field(
+        default_factory=ChatomSymphonyConfig,
+        description="Chatom Symphony configuration.",
+    )
 
-class SymphonyConfig(BaseConfig):
-    adapter_config: SymphonyAdapterConfig
-    exit_msg: str = ""
-    initial_rooms: List[str] = []
-    allow_new_rooms: bool = True
     set_presence_seconds: int = Field(
-        0,
-        description="How many seconds to wait between periods of sending requests to set prescence as AVAILABLE. If 0, presence is never set. Calling this endpoint requires the ADMIN_PRESENCE_UPDATE privilege. According to the Symphony docs, after 5 minutes of inactivity, a user turns from AVAILABLE to AWAY, if still connected to symphony. Otherwise, OFFLINE",
+        default=0,
+        description="Seconds between presence updates. 0 means never.",
     )
-
-    def adapter_kwargs(self):
-        return {
-            "exit_msg": self.exit_msg,
-            "rooms": set(self.initial_rooms),
-        }
 
 
 class BotConfig(BaseModel):
-    discord_config: Optional[DiscordConfig] = None
-    slack_config: Optional[SlackConfig] = None
-    symphony_config: Optional[SymphonyConfig] = None
+    """Main bot configuration.
 
-    ratelimit_seconds: int = 1
+    Configure which backends the bot should connect to and
+    their respective settings.
+    """
+
+    discord: Optional[DiscordConfig] = None
+    slack: Optional[SlackConfig] = None
+    symphony: Optional[SymphonyConfig] = None
+
+    ratelimit_seconds: float = Field(
+        default=1.0,
+        description="Minimum seconds between message outputs.",
+    )

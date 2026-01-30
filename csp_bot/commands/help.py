@@ -1,10 +1,15 @@
-from html import escape, unescape
+"""Help command for csp-bot.
+
+Uses chatom's formatting utilities for cross-platform output.
+"""
+
+from html import escape
 from logging import getLogger
-from typing import Mapping, Type
+from typing import Mapping, Optional, Type
 
-import pandas as pd
+from chatom import Message
 
-from csp_bot.structs import BotCommand, Message
+from csp_bot.structs import BotCommand
 
 from .base import BaseCommand, BaseCommandModel, ReplyCommand
 
@@ -12,6 +17,8 @@ log = getLogger(__name__)
 
 
 class HelpCommand(ReplyCommand):
+    """Display help for available commands."""
+
     def command(self) -> str:
         return "help"
 
@@ -19,56 +26,76 @@ class HelpCommand(ReplyCommand):
         return "Help"
 
     def help(self) -> str:
-        return "Get Help with a Bot Command. Syntax: /help [command]"
+        return "Get help with bot commands. Syntax: /help [command]"
 
     def execute(
         self,
         command: BotCommand,
         commands: Mapping[str, "BaseCommand"] = None,
-    ) -> Message:
-        log.info(f"Help command: {command}")
+    ) -> Optional[Message]:
+        log.info(f"Help command: {command.command}")
 
+        # Collect help for each command
         helps = []
+        for cmd_key, cmd_inst in commands.items():
+            # Skip hidden commands
+            if cmd_key.startswith("_"):
+                continue
 
-        for command_key, command_inst in commands.items():
-            # Omit hidden commands
-            if command_key.startswith("_"):
+            # Skip commands not supported on this backend
+            if cmd_inst.backends() and command.backend not in cmd_inst.backends():
                 continue
-            # Omit commands that are not supported for this backend
-            if command_inst.backends() and command.backend not in command_inst.backends():
+
+            # Filter by requested commands if args provided
+            if command.args and cmd_key not in command.args:
                 continue
-            if len(set(command.args).intersection(commands.keys())) == 0 or command_key in command.args:
-                # Grab extra stuff
-                name = command_inst.name()
-                help = command_inst.help()
-                helps.append(
-                    (
-                        escape(command_key, quote=True),
-                        escape(name, quote=True),
-                        escape(help, quote=True),
-                    )
+
+            helps.append(
+                (
+                    escape(cmd_key, quote=True),
+                    escape(cmd_inst.name(), quote=True),
+                    escape(cmd_inst.help(), quote=True),
                 )
+            )
 
         helps = sorted(helps, key=lambda x: x[0])
+
+        # Build response using chatom's FormattedMessage
         if command.backend == "symphony":
+            # Symphony supports expandable cards
             table = "<table><thead><tr><td>Command</td><td>Name</td><td>Info</td></tr></thead><tbody>"
-            for command_key, name, help in helps:
-                table += f"<tr><td>/{command_key}</td><td>{name}</td><td>{help}</td></tr>"
+            for cmd_key, name, help_text in helps:
+                table += f"<tr><td>/{cmd_key}</td><td>{name}</td><td>{help_text}</td></tr>"
             table += "</tbody></table>"
-            message = f'<expandable-card state="collapsed"><header>Bot Commands Help</header><body variant="default">{table}</body></expandable-card>'
+            content = f'<expandable-card state="collapsed"><header>Bot Commands Help</header><body variant="default">{table}</body></expandable-card>'
         elif command.backend == "slack":
-            table = pd.DataFrame(helps, columns=["Command", "Name", "Info"]).to_markdown(index=False)
-            message = f"Bot Commands Help\n```\n{table}\n```"
+            # Slack uses mrkdwn code blocks for tables
+            lines = ["*Bot Commands Help*", "```"]
+            lines.append(f"{'Command':<15} {'Name':<15} {'Info'}")
+            lines.append("-" * 60)
+            for cmd_key, name, help_text in helps:
+                lines.append(f"/{cmd_key:<14} {name:<15} {help_text}")
+            lines.append("```")
+            content = "\n".join(lines)
         elif command.backend == "discord":
-            table = unescape(pd.DataFrame(helps, columns=["Command", "Name", "Info"]).to_markdown(index=False))
-            message = f"# Bot Commands Help\n{table}"
+            # Discord uses markdown tables
+            lines = ["# Bot Commands Help", ""]
+            lines.append("| Command | Name | Info |")
+            lines.append("|---------|------|------|")
+            for cmd_key, name, help_text in helps:
+                lines.append(f"| /{cmd_key} | {name} | {help_text} |")
+            content = "\n".join(lines)
         else:
-            raise NotImplementedError(f"Unsupported backend: {command.backend}")
+            # Plain text fallback
+            lines = ["Bot Commands Help", ""]
+            for cmd_key, name, help_text in helps:
+                lines.append(f"/{cmd_key}: {name} - {help_text}")
+            content = "\n".join(lines)
 
         return Message(
-            msg=message,
+            content=content,
             channel=command.channel,
-            backend=command.backend,
+            metadata={"backend": command.backend},
         )
 
 

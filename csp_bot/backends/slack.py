@@ -1,24 +1,34 @@
-from csp import Struct
-from pydantic import BaseModel
+"""Slack backend integration using chatom.
+
+This module provides Slack-specific types and adapters through chatom.
+"""
 
 __all__ = (
-    "SlackAdapterConfig",
-    "SlackAdapterManager",
+    "SlackConfig",
+    "SlackAdapter",
     "SlackMessage",
-    "mention_user_slack",
+    "SlackUser",
+    "SlackPresenceStatus",
 )
 
-# reexport
 try:
-    from csp_adapter_slack import SlackAdapterConfig, SlackAdapterManager, SlackMessage, mention_user as mention_user_slack
+    from chatom.slack import (
+        SlackConfig,
+        SlackMessage,
+        SlackPresenceStatus,
+        SlackUser,
+    )
+    from csp_adapter_slack import SlackAdapter
 except ImportError:
+    from chatom import Message as ChatomMessage, User as ChatomUser
+    from pydantic import BaseModel
 
-    class SlackAdapterConfig(BaseModel):
+    class SlackConfig(BaseModel):
+        """Placeholder when chatom.slack is not available."""
+
         pass
 
-    SlackAdapterManager = None
-
-    class SlackMessage(Struct):
-        _ignore: str = ""
-
-    mention_user_slack = None
+    SlackAdapter = None
+    SlackMessage = ChatomMessage
+    SlackUser = ChatomUser
+    SlackPresenceStatus = None
