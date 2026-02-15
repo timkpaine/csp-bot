@@ -123,23 +123,22 @@ artifacts = []
 src = "/"
 
 [tool.hatch.build.targets.sdist]
-<<<<<<< before updating
-packages = ["csp_bot"]
-exclude = ["/docs", "/example"]
-
-[tool.hatch.build.targets.wheel]
-packages = ["csp_bot"]
-exclude = ["/docs", "/example"]
-=======
 packages = [
     "csp_bot",
+]
+exclude = [
+    "/docs",
+    "/example",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = [
     "csp_bot",
 ]
->>>>>>> after updating
+exclude = [
+    "/docs",
+    "/example",
+]
 
 [tool.hatch.build.targets.wheel.shared-data]
 
@@ -173,12 +172,11 @@ section-order = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-<<<<<<< before updating
-"__init__.py" = ["F401", "F403"]
-"csp_bot/backends" = ["F401", "F403"]
-=======
 "__init__.py" = [
     "F401",
     "F403",
 ]
->>>>>>> after updating
+"csp_bot/backends" = [
+    "F401",
+    "F403",
+]
