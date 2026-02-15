@@ -1,10 +1,14 @@
 [build-system]
-requires = ["hatchling"]
+requires = [
+    "hatchling",
+]
 build-backend="hatchling.build"
 
 [project]
 name = "csp-bot"
-authors = [{name = "Point72, L.P.", email = "OpenSource@point72.com"}]
+authors = [
+    {name = "Point72, L.P.", email = "OpenSource@point72.com"},
+]
 description = "Reactive chat bot framework"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -60,6 +64,7 @@ develop = [
     "pytest-cov",
     "ruff>=0.9,<0.15",
     "twine",
+    "ty",
     "uv",
     "wheel",
     # tests
@@ -118,31 +123,60 @@ artifacts = []
 src = "/"
 
 [tool.hatch.build.targets.sdist]
-packages = ["csp_bot"]
-exclude = ["/docs", "/example"]
+packages = [
+    "csp_bot",
+]
+exclude = [
+    "/docs",
+    "/example",
+]
 
 [tool.hatch.build.targets.wheel]
-packages = ["csp_bot"]
-exclude = ["/docs", "/example"]
+packages = [
+    "csp_bot",
+]
+exclude = [
+    "/docs",
+    "/example",
+]
 
 [tool.hatch.build.targets.wheel.shared-data]
 
 [tool.pytest.ini_options]
-addopts = ["-vvv", "--junitxml=junit.xml"]
+addopts = [
+    "-vvv",
+    "--junitxml=junit.xml",
+]
 testpaths = "csp_bot/tests"
 
 [tool.ruff]
 line-length = 150
 
 [tool.ruff.lint]
-extend-select = ["I"]
+extend-select = [
+    "I",
+]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
 default-section = "third-party"
-known-first-party = ["csp_bot"]
-section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+known-first-party = [
+    "csp_bot",
+]
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401", "F403"]
-"csp_bot/backends" = ["F401", "F403"]
+"__init__.py" = [
+    "F401",
+    "F403",
+]
+"csp_bot/backends" = [
+    "F401",
+    "F403",
+]
