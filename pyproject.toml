@@ -52,16 +52,11 @@ dependencies = [
 develop = [
     "build",
     "bump-my-version",
-<<<<<<< before updating
-    "check-manifest",
-    "codespell>=2.4,<2.5",
+    "check-dist",
+    "codespell",
     "csp-adapter-discord>=0.1,<0.2",
     "csp-adapter-slack>=0.3,<0.4",
     "csp-adapter-symphony>=0.3,<0.4",
-=======
-    "check-dist",
-    "codespell",
->>>>>>> after updating
     "hatchling",
     "mdformat",
     "mdformat-tables>=1",
@@ -99,22 +94,12 @@ filename = "pyproject.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
 
-<<<<<<< before updating
-[tool.check-manifest]
-ignore = [
-    ".copier-answers.yaml",
-    "Makefile",
-    "docs/**/*",
-    "example/**/*",
-]
-
-=======
->>>>>>> after updating
 [tool.coverage.run]
 branch = true
 omit = [
     "csp_bot/tests/integration/",
 ]
+
 [tool.coverage.report]
 exclude_also = [
     "raise NotImplementedError",
@@ -135,8 +120,8 @@ packages = [
     "csp_bot",
 ]
 exclude = [
-    "/docs",
-    "/example",
+    "docs",
+    "example",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -144,8 +129,8 @@ packages = [
     "csp_bot",
 ]
 exclude = [
-    "/docs",
-    "/example",
+    "docs",
+    "example",
 ]
 
 [tool.hatch.build.targets.wheel.shared-data]
