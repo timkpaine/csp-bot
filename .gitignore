@@ -156,18 +156,13 @@ csp_bot/labextension
 # Rust
 target
 
-<<<<<<< before updating
+# Hydra
+outputs/
+multirun/
+
 # Secrets
 .discord_token
 .slack_app_token
 .slack_bot_token
 .symphony_cert
 .symphony_key
-
-# Outputs
-outputs
-=======
-# Hydra
-outputs/
-multirun/
->>>>>>> after updating
