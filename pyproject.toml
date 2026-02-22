@@ -2,7 +2,7 @@
 requires = [
     "hatchling",
 ]
-build-backend="hatchling.build"
+build-backend = "hatchling.build"
 
 [project]
 name = "csp-bot"
@@ -52,17 +52,22 @@ dependencies = [
 develop = [
     "build",
     "bump-my-version",
+<<<<<<< before updating
     "check-manifest",
     "codespell>=2.4,<2.5",
     "csp-adapter-discord>=0.1,<0.2",
     "csp-adapter-slack>=0.3,<0.4",
     "csp-adapter-symphony>=0.3,<0.4",
+=======
+    "check-dist",
+    "codespell",
+>>>>>>> after updating
     "hatchling",
-    "mdformat>=0.7.22,<1.1",
+    "mdformat",
     "mdformat-tables>=1",
     "pytest",
     "pytest-cov",
-    "ruff>=0.9,<0.15",
+    "ruff",
     "twine",
     "ty",
     "uv",
@@ -94,6 +99,7 @@ filename = "pyproject.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
 
+<<<<<<< before updating
 [tool.check-manifest]
 ignore = [
     ".copier-answers.yaml",
@@ -102,6 +108,8 @@ ignore = [
     "example/**/*",
 ]
 
+=======
+>>>>>>> after updating
 [tool.coverage.run]
 branch = true
 omit = [
