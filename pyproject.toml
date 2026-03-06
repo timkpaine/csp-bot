@@ -41,7 +41,7 @@ dependencies = [
     "ccflow>=0.5.2",
     "croniter",
     "csp>=0.9,<1",
-    "csp-gateway>=2,<3",
+    "csp-gateway>=2.5,<2.6",
     "dateparser",
     "hydra-core",
     "pandas",
