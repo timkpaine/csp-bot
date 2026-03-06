@@ -12,7 +12,6 @@ start:
   rest: true
   ui: false
 
-authenticate: False
 port: 8000
 
 gateway:
@@ -31,7 +30,6 @@ gateway:
     - /commands/status
   settings:
     PORT: ${port}
-    AUTHENTICATE: ${authenticate}
 
 hydra:
   run:
