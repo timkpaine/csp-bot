@@ -1,171 +1,170 @@
+"""Data structures for csp-bot using chatom.
+
+This module provides the core data structures for csp-bot,
+leveraging chatom's unified message and user models.
+"""
+
 from datetime import datetime
 from enum import Enum
-from typing import Tuple, Union
+from typing import Tuple
 
-from csp import Struct
+from chatom import Channel, Message as ChatomMessage
 from csp_gateway.utils.struct import GatewayStruct
-
-from .backends import DiscordMessage as BaseDiscordMessage, SlackMessage as BaseSlackMessage, SymphonyMessage as BaseSymphonyMessage
-from .utils import Backend
 
 __all__ = (
     "Backend",
     "CommandVariant",
-    "Message",
-    "User",
     "BotCommand",
+    "BotMessage",
 )
 
 
+# Type alias for supported backends
+Backend = str  # "discord", "slack", "symphony"
+
+
 class CommandVariant(Enum):
-    # No response needed, used when you want
-    # the bot to go and trigger something else
-    # without replying via symphony
+    """Variants of bot command responses."""
+
     NO_RESPONSE = 0
+    """No response needed - used for triggering actions without reply."""
 
-    # User will @ the bot, and the bot
-    # will respond, optionally in a given
-    # room
     REPLY = 1
+    """Bot replies in the channel where the command was issued."""
 
-    # User will @ the bot, and the bot
-    # will reply to the user @ing them
-    # back, optionally in a given room
     REPLY_TO_AUTHOR = 2
+    """Bot replies mentioning the command author."""
 
-    # User will @ the bot and another
-    # user, and the bot will @ the
-    # tagged user, optionally in a given
-    # room
     REPLY_TO_OTHER = 3
+    """Bot replies mentioning a tagged user."""
 
-    # User will @ the bot and any
-    # number of other users, and the
-    # bot will reply to all excluding
-    # the bot itself, optionall in a
-    # given room
     REPLY_TO_ALL = 4
+    """Bot replies mentioning all tagged users."""
 
 
-class Message(GatewayStruct):
-    user: str
-    """username of the user, specific to the platform"""
+class BotMessage(GatewayStruct):
+    """Message representation for bot responses.
 
-    user_email: str
-    """email of the author, for mentions"""
+    This provides a simple structure for bot responses that can
+    be converted to backend-specific message types.
+    """
 
-    user_id: str
-    """uid of the author, for mentions, specific to the platform"""
+    content: str
+    """Plain text or formatted message content."""
 
-    tags: [str]
-    """list of user ids in message, for mentions"""
+    channel_id: str
+    """Channel/room ID to send to."""
 
-    msg: str
-    """plain text payload of the message"""
+    channel_name: str
+    """Channel/room name (for resolution)."""
 
-    reaction: str
-    """emote, for backends that support emote reactions"""
-
-    thread: str
-    """thread id, for backends that support threads"""
-
-    channel: str
-    """name of channel/room"""
+    thread_id: str
+    """Thread ID for threaded replies."""
 
     backend: str
-    """Backend, e.g. slack, symphony, discord"""
+    """Target backend platform."""
 
-    _raw: object
-    """raw message payload, private to avoid serialization"""
+    mentions: Tuple[str]
+    """User IDs to mention in the message."""
 
-    @staticmethod
-    def from_raw_message(adapter_type: str, msg: Union[BaseDiscordMessage, BaseSlackMessage, BaseSymphonyMessage]) -> "Message":
-        ret = Message()
-        ret.user = msg.user if hasattr(msg, "user") else ""
-        ret.user_email = msg.user_email if hasattr(msg, "user_email") else ""
-        ret.user_id = msg.user_id if hasattr(msg, "user_id") else ""
-        ret.tags = msg.tags if hasattr(msg, "tags") else []
-        ret.msg = msg.msg if hasattr(msg, "msg") else ""
-        ret.backend = adapter_type
-        ret._raw = msg
-        if adapter_type == "symphony":
-            ret.channel = msg.room if msg.room != "DM" else msg.room_id
-            # not supported
-            ret.reaction = ""
-            ret.thread = ""
-        elif adapter_type == "slack":
-            ret.channel = msg.channel if msg.channel != "DM" else msg.channel_id
-            ret.reaction = msg.reaction if hasattr(msg, "reaction") else ""
-            ret.thread = msg.thread if hasattr(msg, "thread") else ""
-        elif adapter_type == "discord":
-            ret.channel = msg.channel if msg.channel != "DM" else msg.channel_id
-            ret.reaction = msg.reaction if hasattr(msg, "reaction") else ""
-            ret.thread = msg.thread if hasattr(msg, "thread") else ""
-        else:
-            raise NotImplementedError(f"Adapter type {adapter_type} not supported")
-        return ret
+    formatted: object  # FormattedMessage, but can't use pydantic in Struct
+    """Optional FormattedMessage for rich content."""
 
-    def to_raw_message(self, adapter_type: str) -> Union[BaseDiscordMessage, BaseSlackMessage, BaseSymphonyMessage]:
-        if adapter_type == "symphony":
-            return BaseSymphonyMessage(
-                user=self.user if hasattr(self, "user") else "",
-                user_email=self.user_email if hasattr(self, "user_email") else "",
-                user_id=self.user_id if hasattr(self, "user_id") else "",
-                tags=self.tags.copy() if hasattr(self, "tags") else [],
-                room=self.channel if hasattr(self, "channel") else "",
-                msg=self.msg if hasattr(self, "msg") else "",
-                form_values=self.payload.copy() if hasattr(self, "payload") else {},
-            )
-        elif adapter_type == "slack":
-            return BaseSlackMessage(
-                user=self.user if hasattr(self, "user") else "",
-                user_email=self.user_email if hasattr(self, "user_email") else "",
-                user_id=self.user_id if hasattr(self, "user_id") else "",
-                tags=self.tags.copy() if hasattr(self, "tags") else [],
-                channel=self.channel if hasattr(self, "channel") else "",
-                msg=self.msg if hasattr(self, "msg") else "",
-                reaction=self.reaction if hasattr(self, "reaction") else "",
-                thread=self.thread if hasattr(self, "thread") else "",
-                payload=self.payload.copy() if hasattr(self, "payload") else {},
-            )
-        elif adapter_type == "discord":
-            return BaseDiscordMessage(
-                user=self.user if hasattr(self, "user") else "",
-                user_email=self.user_email if hasattr(self, "user_email") else "",
-                user_id=self.user_id if hasattr(self, "user_id") else "",
-                tags=self.tags.copy() if hasattr(self, "tags") else [],
-                channel=self.channel if hasattr(self, "channel") else "",
-                msg=self.msg if hasattr(self, "msg") else "",
-                reaction=self.reaction if hasattr(self, "reaction") else "",
-                thread=self.thread if hasattr(self, "thread") else "",
-                payload=self.payload.copy() if hasattr(self, "payload") else None,
-            )
-        else:
-            raise NotImplementedError(f"Adapter type {adapter_type} not supported")
+    reply_to_id: str
+    """Message ID this is replying to."""
 
+    @classmethod
+    def from_chatom_message(cls, msg: ChatomMessage, backend: str) -> "BotMessage":
+        """Create a BotMessage from a chatom Message.
 
-class User(Struct):
-    id: str
-    name: str
-    backend: str  # TODO: Backend
+        Args:
+            msg: The chatom Message object.
+            backend: The backend platform name.
+
+        Returns:
+            A new BotMessage instance.
+        """
+        return cls(
+            content=msg.content or "",
+            channel_id=msg.channel_id or "",
+            channel_name=msg.channel.name if msg.channel else "",
+            thread_id=msg.thread_id or "",
+            backend=backend,
+            mentions=tuple(msg.mention_ids) if msg.mention_ids else (),
+            formatted=None,
+            reply_to_id=msg.reply_to_id or "",
+        )
+
+    def to_chatom_message(self) -> ChatomMessage:
+        """Convert to a chatom Message.
+
+        Returns:
+            A chatom Message instance.
+        """
+        return ChatomMessage(
+            content=self.content,
+            channel_id=self.channel_id,
+            channel=Channel(id=self.channel_id, name=self.channel_name) if self.channel_id else None,
+            thread_id=self.thread_id,
+            mention_ids=list(self.mentions) if self.mentions else [],
+            reply_to_id=self.reply_to_id,
+        )
 
 
 class BotCommand(GatewayStruct):
-    message: Message
-    command: str
-    args: Tuple[str]
-    source: User
-    targets: Tuple[User]
+    """A bot command parsed from an incoming message.
 
-    channel: str
-    backend: str  # TODO: Backend
+    This structure captures all the information needed to
+    execute a bot command and generate a response.
+    """
+
+    command: str
+    """The command name (without leading /)."""
+
+    args: Tuple[str]
+    """Command arguments as parsed tokens."""
+
+    source: object  # chatom.User - stored as object for Struct compatibility
+    """The user who issued the command."""
+
+    targets: Tuple[object]  # Tuple[chatom.User] - stored as object for Struct compatibility
+    """Users mentioned/tagged in the command."""
+
+    channel_id: str
+    """Channel ID where the command was issued."""
+
+    channel_name: str
+    """Channel name where the command was issued."""
+
+    backend: str
+    """Backend platform (slack, symphony, discord)."""
 
     variant: CommandVariant
+    """The command response variant."""
 
-    delay: datetime  # NOTE: this is a datetime type because we use dateparser
+    message: object  # chatom.Message - stored as object for Struct compatibility
+    """The original chatom Message."""
+
+    delay: datetime
+    """Scheduled execution time (for delayed commands)."""
+
     schedule: str
-    times_run: int = 0
+    """Cron expression for recurring commands."""
+
+    times_run: int
+    """Number of times this command has run."""
+
+    @property
+    def channel(self) -> Channel:
+        """Get the channel as a chatom Channel object."""
+        return Channel(id=self.channel_id, name=self.channel_name)
+
+    @property
+    def original_message(self) -> ChatomMessage:
+        """Get the original chatom Message."""
+        return self.message
 
 
+# Exclude from gateway struct lookup to avoid conflicts
 BotCommand.omit_from_lookup()
-Message.omit_from_lookup()
+BotMessage.omit_from_lookup()

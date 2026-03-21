@@ -1,23 +1,31 @@
-from csp import Struct
-from pydantic import BaseModel
+"""Discord backend integration using chatom.
+
+This module provides Discord-specific types and adapters through chatom.
+"""
 
 __all__ = (
-    "DiscordAdapterConfig",
-    "DiscordAdapterManager",
+    "DiscordConfig",
+    "DiscordAdapter",
     "DiscordMessage",
-    "mention_user_discord",
+    "DiscordUser",
 )
 
 try:
-    from csp_adapter_discord import DiscordAdapterConfig, DiscordAdapterManager, DiscordMessage, mention_user as mention_user_discord
+    from chatom.discord import (
+        DiscordConfig,
+        DiscordMessage,
+        DiscordUser,
+    )
+    from csp_adapter_discord import DiscordAdapter
 except ImportError:
+    from chatom import Message as ChatomMessage, User as ChatomUser
+    from pydantic import BaseModel
 
-    class DiscordAdapterConfig(BaseModel):
+    class DiscordConfig(BaseModel):
+        """Placeholder when chatom.discord is not available."""
+
         pass
 
-    DiscordAdapterManager = None
-
-    class DiscordMessage(Struct):
-        _ignore: str = ""
-
-    mention_user_discord = None
+    DiscordAdapter = None
+    DiscordMessage = ChatomMessage
+    DiscordUser = ChatomUser
