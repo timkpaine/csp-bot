@@ -4,7 +4,16 @@ import pytest
 from chatom import User
 from chatom.format import FormattedMessage
 
-from csp_bot.utils import format_message, is_valid_url, mention_user, mention_users
+from csp_bot.utils import (
+    format_message,
+    format_with_message_ml,
+    get_backend_format,
+    is_valid_url,
+    mention_user,
+    mention_users,
+    recursive_format_for_message_ml,
+    sanitize_message,
+)
 
 
 class TestMentionUtils:
@@ -100,3 +109,98 @@ class TestUrlValidation:
         """Test invalid URLs."""
         assert not is_valid_url("not-a-url")
         assert not is_valid_url("")
+
+
+class TestMessageMLFormatting:
+    """Tests for Symphony MessageML formatting utilities."""
+
+    def test_format_with_message_ml_escapes_ampersand(self):
+        """Test that ampersand is escaped for MessageML."""
+        result = format_with_message_ml("Tom & Jerry")
+        assert "&#38;" in result
+        assert "&" not in result.replace("&#38;", "")
+
+    def test_format_with_message_ml_escapes_less_than(self):
+        """Test that < is escaped for MessageML."""
+        result = format_with_message_ml("a < b")
+        assert "&lt;" in result
+        assert "<" not in result.replace("&lt;", "")
+
+    def test_format_with_message_ml_escapes_dollar_brace(self):
+        """Test that ${ is escaped for MessageML."""
+        result = format_with_message_ml("${variable}")
+        assert "&#36;{" in result
+
+    def test_format_with_message_ml_escapes_hash_brace(self):
+        """Test that #{ is escaped for MessageML."""
+        result = format_with_message_ml("#{expression}")
+        assert "&#35;{" in result
+
+    def test_format_with_message_ml_unescape(self):
+        """Test unescaping from MessageML."""
+        escaped = "Tom &#38; Jerry with &lt;tags"
+        result = format_with_message_ml(escaped, to_message_ml=False)
+        assert "Tom & Jerry" in result
+        assert "<tags" in result
+
+    def test_sanitize_message(self):
+        """Test sanitize_message escapes for MessageML."""
+        result = sanitize_message("Hello <world> & ${stuff}")
+        assert "&lt;" in result
+        assert "&#38;" in result
+        assert "&#36;{" in result
+
+    def test_recursive_format_for_message_ml_with_list(self):
+        """Test recursive formatting with a list."""
+        data = ["hello", "<world", "foo & bar"]
+        result = recursive_format_for_message_ml(data)
+        assert len(result) == 3
+        assert "&lt;world" in result[1]
+        assert "&#38;" in result[2]
+
+    def test_recursive_format_for_message_ml_with_dict(self):
+        """Test recursive formatting with a dict."""
+        data = {"key": "<value", "nested": {"inner": "a & b"}}
+        result = recursive_format_for_message_ml(data)
+        assert "&lt;value" in result["key"]
+        assert "&#38;" in result["nested"]["inner"]
+
+    def test_recursive_format_for_message_ml_with_tuple(self):
+        """Test recursive formatting with a tuple."""
+        data = ("a", "<b", "c & d")
+        result = recursive_format_for_message_ml(data)
+        # Tuples become lists
+        assert isinstance(result, list)
+        assert "&lt;b" in result[1]
+
+    def test_recursive_format_for_message_ml_with_set(self):
+        """Test recursive formatting with a set."""
+        data = {"<item"}
+        result = recursive_format_for_message_ml(data)
+        assert isinstance(result, list)
+        assert "&lt;item" in result[0]
+
+
+class TestGetBackendFormat:
+    """Tests for get_backend_format function."""
+
+    def test_get_backend_format_slack(self):
+        """Test getting format for Slack."""
+        from chatom.format import Format
+
+        fmt = get_backend_format("slack")
+        assert fmt == Format.SLACK_MARKDOWN
+
+    def test_get_backend_format_symphony(self):
+        """Test getting format for Symphony."""
+        from chatom.format import Format
+
+        fmt = get_backend_format("symphony")
+        assert fmt == Format.SYMPHONY_MESSAGEML
+
+    def test_get_backend_format_discord(self):
+        """Test getting format for Discord."""
+        from chatom.format import Format
+
+        fmt = get_backend_format("discord")
+        assert fmt == Format.DISCORD_MARKDOWN
