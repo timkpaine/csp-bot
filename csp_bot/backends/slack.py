@@ -18,7 +18,7 @@ try:
         SlackPresenceStatus,
         SlackUser,
     )
-    from csp_adapter_slack import SlackAdapter
+    from csp_adapter_slack.v1 import SlackAdapter
 except ImportError:
     from chatom import Message as ChatomMessage, User as ChatomUser
     from pydantic import BaseModel

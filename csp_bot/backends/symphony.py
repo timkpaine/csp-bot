@@ -18,7 +18,7 @@ try:
         SymphonyPresenceStatus,
         SymphonyUser,
     )
-    from csp_adapter_symphony import SymphonyAdapter
+    from csp_adapter_symphony.v1 import SymphonyAdapter
 except ImportError:
     from chatom import Message as ChatomMessage, User as ChatomUser
     from pydantic import BaseModel

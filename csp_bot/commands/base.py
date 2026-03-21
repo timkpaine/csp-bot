@@ -7,9 +7,9 @@ Commands can leverage chatom's cross-platform features.
 from abc import ABC, abstractmethod
 from typing import List, Type, Union
 
+from ccflow import BaseModel
 from chatom import Message
 
-from ccflow import BaseModel
 from csp_bot.structs import Backend, BotCommand, BotMessage, CommandVariant
 
 
