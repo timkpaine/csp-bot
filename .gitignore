@@ -146,16 +146,14 @@ target
 outputs/
 multirun/
 
-<<<<<<< before updating
+# AI
+ROADMAP.md
+AGENTS.md
+.github/hooks/sdlc.json
+
 # Secrets
 .discord_token
 .slack_app_token
 .slack_bot_token
 .symphony_cert
 .symphony_key
-=======
-# AI
-ROADMAP.md
-AGENTS.md
-.github/hooks/sdlc.json
->>>>>>> after updating
