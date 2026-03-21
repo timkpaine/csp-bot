@@ -6,9 +6,8 @@ backend-specific configurations with bot-specific settings.
 
 from typing import List, Optional, Set
 
-from pydantic import Field
-
 from ccflow import BaseModel
+from pydantic import Field
 
 from .backends import (
     DiscordConfig as ChatomDiscordConfig,

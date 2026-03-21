@@ -11,6 +11,8 @@ Key features enabled by chatom:
 """
 
 import asyncio
+import html
+import re
 import threading
 import time
 from csv import reader
@@ -487,9 +489,6 @@ class Bot(GatewayModule):
                 content = msg._parse_symphony_content(raw_content)
             else:
                 # Manual HTML stripping for non-SymphonyMessage
-                import html
-                import re
-
                 content = raw_content
                 content = re.sub(r"<br\s*/?>\s*", "\n", content, flags=re.IGNORECASE)
                 content = re.sub(r"</p>\s*", "\n", content, flags=re.IGNORECASE)
