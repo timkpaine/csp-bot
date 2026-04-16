@@ -676,6 +676,13 @@ class Bot(GatewayModule):
 
             # Strip bot mention from beginning if present
             bot_name = self._get_bot_name(backend)
+            bot_id = self._get_bot_id(backend)
+
+            # Strip <@BOT_ID> format (Slack/Discord)
+            if bot_id:
+                content = re.sub(rf"<@!?{re.escape(bot_id)}>", "", content).strip()
+
+            # Strip @bot_name format (Symphony/generic)
             if bot_name and content.startswith(f"@{bot_name}"):
                 content = content[len(f"@{bot_name}") :].strip()
 

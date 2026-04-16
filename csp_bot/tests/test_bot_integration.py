@@ -16,7 +16,7 @@ from chatom import Channel, Message, User
 
 from csp_bot import Bot, BotCommand, BotConfig, BotMessage
 from csp_bot.bot_config import SymphonyConfig
-from csp_bot.commands import ReplyToOtherCommand
+from csp_bot.commands import HelpCommand, ReplyToOtherCommand
 from csp_bot.structs import CommandVariant
 
 # Test Fixtures
@@ -543,6 +543,81 @@ class TestExtractCommands:
         # The important thing is the command was parsed
         if result:
             assert result.command == "test"
+
+    @pytest.mark.parametrize(
+        "text,backend,bot_id",
+        [
+            ("<@UBOT123> /test", "slack", "UBOT123"),
+            ("<@UBOT123>/test", "slack", "UBOT123"),
+            ("<@UBOT123>!test", "slack", "UBOT123"),
+            ("<@!UBOT123> /test", "discord", "UBOT123"),
+        ],
+    )
+    def test_extract_command_strips_bot_mention(self, bot_with_symphony, text, backend, bot_id):
+        """Test that <@BOT_ID> mentions are stripped before command parsing."""
+        bot_with_symphony._configs[backend] = MagicMock()
+        bot_with_symphony._bot_user_ids[backend] = bot_id
+        bot_with_symphony._bot_names[backend] = "TestBot"
+
+        class TestCmd(ReplyToOtherCommand):
+            def command(self):
+                return "test"
+
+            def name(self):
+                return "Test"
+
+            def help(self):
+                return "Test"
+
+            def execute(self, cmd):
+                return None
+
+        bot_with_symphony._commands["test"] = TestCmd()
+
+        msg = Message(
+            id="msg1",
+            content=text,
+            author=User(id="user1"),
+            channel=Channel(id="ch1"),
+            metadata={"backend": backend},
+        )
+
+        result = bot_with_symphony._extract_commands(
+            msg=msg,
+            backend=backend,
+            channel_id="ch1",
+            text=text,
+            mentions=[User(id=bot_id)],
+        )
+
+        assert result is not None
+        assert result.command == "test"
+
+    def test_extract_command_without_prefix_shows_help(self, bot_with_symphony):
+        """Test that messages without / or ! prefix show help."""
+        bot_with_symphony._configs["slack"] = MagicMock()
+        bot_with_symphony._bot_user_ids["slack"] = "UBOT"
+        bot_with_symphony._bot_names["slack"] = "TestBot"
+        bot_with_symphony._commands["help"] = HelpCommand()
+
+        msg = Message(
+            id="msg1",
+            content="<@UBOT> just some text",
+            author=User(id="user1"),
+            channel=Channel(id="ch1"),
+            metadata={"backend": "slack"},
+        )
+
+        result = bot_with_symphony._extract_commands(
+            msg=msg,
+            backend="slack",
+            channel_id="ch1",
+            text="<@UBOT> just some text",
+            mentions=[User(id="UBOT")],
+        )
+
+        assert result is not None
+        assert result.command == "help"
 
 
 # Filter Messages for Backend Tests
