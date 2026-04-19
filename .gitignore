@@ -151,7 +151,7 @@ multirun/
 ROADMAP.md
 AGENTS.md
 .github/hooks/sdlc.json
-<<<<<<< before updating
+.superpowers
 
 # Secrets
 .discord_token
@@ -159,6 +159,3 @@ AGENTS.md
 .slack_bot_token
 .symphony_cert
 .symphony_key
-=======
-.superpowers
->>>>>>> after updating
