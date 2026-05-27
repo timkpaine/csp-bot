@@ -22,7 +22,7 @@ __all__ = (
     "Backend",
 )
 
-Backend = Literal["discord", "slack", "symphony"]
+Backend = Literal["discord", "slack", "symphony", "telegram"]
 
 
 def is_valid_url(url: str) -> bool:

@@ -13,6 +13,7 @@ from .backends import (
     DiscordConfig as ChatomDiscordConfig,
     SlackConfig as ChatomSlackConfig,
     SymphonyConfig as ChatomSymphonyConfig,
+    TelegramConfig as ChatomTelegramConfig,
 )
 
 __all__ = (
@@ -21,6 +22,7 @@ __all__ = (
     "DiscordConfig",
     "SlackConfig",
     "SymphonyConfig",
+    "TelegramConfig",
 )
 
 
@@ -89,6 +91,15 @@ class SymphonyConfig(BackendConfig):
     )
 
 
+class TelegramConfig(BackendConfig):
+    """Telegram bot configuration."""
+
+    config: ChatomTelegramConfig = Field(
+        default_factory=ChatomTelegramConfig,
+        description="Chatom Telegram configuration.",
+    )
+
+
 class BotConfig(BaseModel):
     """Main bot configuration.
 
@@ -99,6 +110,7 @@ class BotConfig(BaseModel):
     discord: Optional[DiscordConfig] = None
     slack: Optional[SlackConfig] = None
     symphony: Optional[SymphonyConfig] = None
+    telegram: Optional[TelegramConfig] = None
 
     ratelimit_seconds: float = Field(
         default=1.0,

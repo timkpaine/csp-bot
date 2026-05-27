@@ -18,6 +18,7 @@ keywords = [
     "csp",
     "stream-processing",
     "slack",
+    "telegram",
     "chat",
     "chatbot",
 ]
@@ -58,6 +59,7 @@ develop = [
     "csp-adapter-discord>=0.2,<0.3",
     "csp-adapter-slack>=0.4,<0.5",
     "csp-adapter-symphony>=0.4,<0.5",
+    "csp-adapter-telegram>=0.1,<0.2",
     "hatchling",
     "mdformat",
     "mdformat-tables>=1",

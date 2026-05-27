@@ -85,6 +85,12 @@ class HelpCommand(ReplyCommand):
             for cmd_key, name, help_text in helps:
                 lines.append(f"| /{cmd_key} | {name} | {help_text} |")
             content = "\n".join(lines)
+        elif command.backend == "telegram":
+            # Telegram uses HTML formatting
+            lines = ["<b>Bot Commands Help</b>", ""]
+            for cmd_key, name, help_text in helps:
+                lines.append(f"/{cmd_key} — <b>{name}</b>: {help_text}")
+            content = "\n".join(lines)
         else:
             # Plain text fallback
             lines = ["Bot Commands Help", ""]

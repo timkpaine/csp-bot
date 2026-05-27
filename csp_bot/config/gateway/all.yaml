@@ -11,6 +11,8 @@ slack_bot_token: ???
 symphony_bot_name: ???
 symphony_cert: ???
 symphony_key: ???
+telegram_bot_name: ???
+telegram_bot_token: ???
 
 modules:
   bot:
@@ -37,7 +39,13 @@ modules:
           _target_: csp_bot.SymphonyAdapterConfig
           cert_string: ${symphony_cert}
           key_string: ${symphony_key}
+      telegram_config:
+        _target_: csp_bot.TelegramConfig
+        bot_name: ${telegram_bot_name}
+        adapter_config:
+          _target_: csp_bot.TelegramAdapterConfig
+          bot_token: ${telegram_bot_token}
 
 hydra:
   job:
-    name: csp-bot--discord[${discord_bot_name}]-slack[${slack_bot_name}]-symphony[${symphony_bot_name}]
+    name: csp-bot--discord[${discord_bot_name}]-slack[${slack_bot_name}]-symphony[${symphony_bot_name}]-telegram[${telegram_bot_name}]

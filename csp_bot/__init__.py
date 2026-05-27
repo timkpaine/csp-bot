@@ -17,7 +17,7 @@ __version__ = "2.0.0"
 from chatom import Channel, Message, User
 
 from .bot import Bot
-from .bot_config import BotConfig, DiscordConfig, SlackConfig, SymphonyConfig
+from .bot_config import BotConfig, DiscordConfig, SlackConfig, SymphonyConfig, TelegramConfig
 from .commands import (
     BaseCommand,
     BaseCommandModel,
@@ -53,6 +53,7 @@ __all__ = (
     "DiscordConfig",
     "SlackConfig",
     "SymphonyConfig",
+    "TelegramConfig",
     # Commands
     "BaseCommand",
     "BaseCommandModel",

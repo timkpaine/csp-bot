@@ -34,6 +34,7 @@ from .backends import (
     SlackAdapter,
     SymphonyAdapter,
     SymphonyPresenceStatus,
+    TelegramAdapter,
 )
 from .bot_config import BotConfig
 from .commands import (
@@ -108,6 +109,13 @@ class Bot(GatewayModule):
             self._configs["symphony"] = self.config.symphony
             self._adapters["symphony"] = SymphonyAdapter(self.config.symphony.config)
 
+        # Initialize Telegram
+        if self.config.telegram:
+            if TelegramAdapter is None:
+                raise ImportError("Telegram adapter not installed. Please install csp-adapter-telegram.")
+            self._configs["telegram"] = self.config.telegram
+            self._adapters["telegram"] = TelegramAdapter(self.config.telegram.config)
+
         # Fetch bot info for all backends at startup
         for backend in self._adapters.keys():
             log.info(f"Fetching bot info for {backend}...")
@@ -167,7 +175,7 @@ class Bot(GatewayModule):
             self._adapters["symphony"].publish_presence(presence)
 
         # Set up user access queries
-        for backend in ["symphony", "slack", "discord"]:
+        for backend in ["symphony", "slack", "discord", "telegram"]:
             config = self._configs.get(backend)
             if config and config.user_access_channels:
                 self._update_user_access(backend)
