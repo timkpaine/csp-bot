@@ -36,7 +36,7 @@ class EchoCommand(ReplyToOtherCommand):
 
         # Add mentions for any tagged users
         if command.targets:
-            mentions = mention_users([t.to_chatom_user() for t in command.targets], command.backend)
+            mentions = mention_users(list(command.targets), command.backend)
             if mentions:
                 content = f"{content} {mentions}".strip()
 

@@ -4,4 +4,6 @@ symphony:
   bot_name: ${bot_name}
   config:
     _target_: chatom.symphony.SymphonyConfig
-    bot_private_key_content: ${oc.env:SYMPHONY_BOT_KEY}
+    host: ${oc.env:SYMPHONY_HOST}
+    bot_username: ${oc.env:SYMPHONY_BOT_USERNAME}
+    bot_certificate_path: ${oc.env:SYMPHONY_CERT_PATH}

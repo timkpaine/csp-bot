@@ -5,5 +5,5 @@ defaults:
 
 bot_name: CSP Bot
 
-# Tokens are read from the environment: SYMPHONY_BOT_KEY
+# Credentials are read from the environment: SYMPHONY_HOST, SYMPHONY_BOT_USERNAME, SYMPHONY_CERT_PATH
 # csp-bot-start --config-dir=example +bot=symphony

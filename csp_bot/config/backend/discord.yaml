@@ -5,3 +5,9 @@ discord:
   config:
     _target_: chatom.discord.DiscordConfig
     token: ${oc.env:DISCORD_TOKEN}
+    # message_content is a privileged intent and must also be enabled in the
+    # Discord Developer Portal for the bot to read command text in guilds.
+    intents:
+      - guilds
+      - messages
+      - message_content

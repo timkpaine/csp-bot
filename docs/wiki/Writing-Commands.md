@@ -32,7 +32,7 @@ class HelloCommand(ReplyToOtherCommand):
         if not command.targets:
             return None
         mentions = mention_users(
-            [t.to_chatom_user() for t in command.targets],
+            list(command.targets),
             command.backend,
         )
         return Message(
@@ -51,7 +51,9 @@ class HelloCommandModel(BaseCommandModel):
 ## Register the command
 
 Commands are selected by configuration.
-Put `hello.py` next to a bot config and list the command alongside the built-ins:
+`csp-bot` imports each command by its `_target_`, so `hello.py` must be importable on the `PYTHONPATH` (for example, run from the directory that contains it, or ship it as part of an installed package).
+
+List your command alongside the built-ins:
 
 **my_bot/bot/slack.yaml**
 
@@ -67,13 +69,16 @@ gateway:
   commands:
     - /commands/help
     - /commands/echo
+    - /commands/schedule
+    - /commands/status
     - _target_: hello.HelloCommandModel
 ```
 
-Then start the bot, pointing Hydra at your config directory so it can import `hello.py`:
+`gateway.commands` replaces the default command list, so include the built-ins you want to keep.
+Then start the bot, adding the config directory to both Hydra's search path and Python's import path:
 
 ```bash
-csp-bot-start --config-dir=my_bot +bot=slack
+PYTHONPATH=my_bot/bot csp-bot-start --config-dir=my_bot +bot=slack
 ```
 
 Tagging the bot with `/hello @someone` now replies with a greeting.

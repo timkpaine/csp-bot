@@ -6,5 +6,6 @@ defaults:
 bot_name: CSP Bot
 
 # Tokens are read from the environment:
-#   SLACK_BOT_TOKEN, SLACK_APP_TOKEN, DISCORD_TOKEN, SYMPHONY_BOT_KEY, TELEGRAM_BOT_TOKEN
+#   SLACK_BOT_TOKEN, SLACK_APP_TOKEN, DISCORD_TOKEN,
+#   SYMPHONY_HOST, SYMPHONY_BOT_USERNAME, SYMPHONY_CERT_PATH, TELEGRAM_BOT_TOKEN
 # csp-bot-start --config-dir=example +bot=all
