@@ -1,10 +1,58 @@
-Configuration for `csp-bot` classes is driven by [`ccflow`](https://github.com/Point72/ccflow).
+Configuration for `csp-bot` is driven by [`ccflow`](https://github.com/Point72/ccflow).
 `ccflow` leverages [Pydantic](https://docs.pydantic.dev/latest/) for type validation, and combines it with [Hydra](https://hydra.cc/) / [OmegaConf](https://omegaconf.readthedocs.io/en/2.3_branch/) for config-driven initialization.
 The [`ccflow` examples](https://github.com/Point72/ccflow/wiki/First-Steps) provide a nice overview of its functionality.
 
-In the context of `csp-bot`, this means that we can control commands, backends, and their respective configuration, all from a convenient and extensible set of yaml files.
+In `csp-bot`, this means commands, backends, and their settings are all controlled from a small set of composable yaml files.
 
-Here is an example of a yaml-based configuration for the standard Slack-based chatbot:
+## Two config groups
+
+`csp-bot` exposes two Hydra config groups:
+
+- `gateway` — assembles the bot module and the `csp-gateway` server around it.
+- `backend` — one fragment per chat platform (`slack`, `discord`, `symphony`, `telegram`), each contributing its configuration to the bot.
+
+The `backend` group is what makes running against any mix of platforms easy.
+Because each fragment writes to a different field of the bot config, you can select **any combination** of them at once.
+
+## Selecting backends
+
+The bare `bot` gateway has no backends of its own.
+Add backends by listing them from the `backend` group:
+
+```bash
+# One backend
+csp-bot-start +gateway=bot +backend='[slack]'
+
+# Any combination — no dedicated config required
+csp-bot-start +gateway=bot +backend='[slack,telegram]'
+csp-bot-start +gateway=bot +backend='[slack,discord,symphony,telegram]'
+```
+
+Each backend reads its credentials from environment variables, so nothing else is required on the command line.
+See [Backends](Backends) for the full list of variables.
+
+## Pre-canned gateways
+
+For the common cases, ready-made `gateway` configs select the backends for you:
+
+| Gateway             | Backends                              |
+| :------------------ | :------------------------------------ |
+| `+gateway=slack`    | Slack                                 |
+| `+gateway=discord`  | Discord                               |
+| `+gateway=symphony` | Symphony                              |
+| `+gateway=telegram` | Telegram                              |
+| `+gateway=mixed`    | Slack + Discord                       |
+| `+gateway=all`      | Slack + Discord + Symphony + Telegram |
+| `+gateway=bot`      | none — add your own with `+backend`   |
+
+```bash
+csp-bot-start +gateway=all
+```
+
+## Using a local config file
+
+Selecting backends from the command line is convenient, but a small yaml file is easier to version and share.
+Hydra unions configs, so a local file only needs to declare which gateway it builds on:
 
 **example/bot/slack.yaml**
 
@@ -15,70 +63,69 @@ defaults:
   - _self_
 
 bot_name: CSP Bot
-app_token: .slack_app_token
-bot_token: .slack_bot_token
 
+# Tokens are read from the environment: SLACK_BOT_TOKEN, SLACK_APP_TOKEN
 # csp-bot-start --config-dir=example +bot=slack
 ```
 
-This configuration:
+To pick your own mix of backends in a file, build on the bare `bot` gateway and list them:
 
-- Inherits from a builtin configuration called `slack`
-- Sets the bot name to `CSP Bot`
-- Expects `app_token` and `bot_token` files called `.slack_app_token` and `.slack_bot_token`, respectively
-
-> [!NOTE]
->
-> We didn't need to create a local yaml file, but its convenient to do so.
-> Instead, we could have used the [hydra override syntax](https://hydra.cc/docs/advanced/override_grammar/basic/) to provide these from the command line:
-> `csp-bot-start +gateway=slack +bot_name="CSP Bot" +app_token=.slack_app_token +bot_token=.slack_bot_token`
-
-Hydra allows for easy unioning of configs, which is what we do here.
-To see the full picture, let's take a look at the builtin configuration `slack`
+**example/bot/custom.yaml**
 
 ```yaml
 # @package _global_
 defaults:
+  - /gateway: bot
+  - /backend:
+      - slack
+      - telegram
   - _self_
 
-bot_name: ???
-app_token: ???
-bot_token: ???
+bot_name: CSP Bot
+```
+
+Run either with:
+
+```bash
+csp-bot-start --config-dir=example +bot=slack
+csp-bot-start --config-dir=example +bot=custom
+```
+
+## What a gateway config expands to
+
+A `gateway` config is built from the bare `bot` skeleton plus the selected `backend` fragments.
+The `bot` gateway defines the bot module and an empty `BotConfig`:
+
+```yaml
+# @package _global_
+defaults:
+  - /modules
+  - _self_
+
+bot_name: CSP Bot
 
 modules:
   bot:
     _target_: csp_bot.Bot
     config:
       _target_: csp_bot.BotConfig
-      slack_config:
-        _target_: csp_bot.SlackConfig
-        bot_name: ${bot_name}
-        adapter_config:
-          _target_: csp_bot.SlackAdapterConfig
-          app_token: ${app_token}
-          bot_token: ${bot_token}
-
-hydra:
-  job:
-    name: csp-bot-slack[${bot_name}]
 ```
 
-The `???` show that these fields should be overridden in other configs, which is exactly what we do in our `example/bot/slack.yaml`.
-We also see that the bot instance is configured with a `SlackConfig`.
+Each `backend` fragment fills in one field of that `BotConfig`.
+For example, the `slack` fragment:
 
-For each backend supported, this is just a wrapper around the backend adapter's configuration:
+```yaml
+# @package modules.bot.config
+slack:
+  _target_: csp_bot.SlackConfig
+  bot_name: ${bot_name}
+  config:
+    _target_: chatom.slack.SlackConfig
+    bot_token: ${oc.env:SLACK_BOT_TOKEN}
+    app_token: ${oc.env:SLACK_APP_TOKEN}
+```
 
-- [Discord Adapter Config](https://github.com/csp-community/csp-adapter-discord/wiki/Setup)
-- [Slack Adapter Config](https://github.com/Point72/csp-adapter-slack/wiki/Setup)
-- [Symphony Adapter Config](https://github.com/Point72/csp-adapter-symphony/wiki/Setup)
+Selecting `+backend='[slack,telegram]'` merges the `slack` and `telegram` fragments into the same `BotConfig`, leaving the unused backends unset.
+The per-platform `config` block is the corresponding [`chatom`](https://github.com/Point72/chatom) backend config, so any field that backend supports can be set here.
 
-By default, we provide a few builtinn configurations
-
-- Slack (Hydra: `/gateway: slack`)
-- Symphony (Hydra: `/gateway: symphony`)
-- Discord: (Hydra: `/gateway: discord`)
-- Slack+Discord (Hydra: `/gateway: mixed`)
-- Slack+Symphony+Discord (Hydra: `/gateway: all`)
-
-You can extend these configs, or use them as the basis for your own custom config.
-All can be found in-source in [csp_bot/config/gateway](https://github.com/Point72/csp-bot/tree/main/csp_bot/config/gateway).
+All of these configs live in-source under [csp_bot/config](https://github.com/Point72/csp-bot/tree/main/csp_bot/config); copy or extend them as the basis for your own.

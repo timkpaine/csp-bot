@@ -13,6 +13,9 @@ Notes for editors:
 - [Installation](Installation)
 - [Overview](Overview)
 - [Configuration](Configuration)
+- [Backends](Backends)
+- [Commands](Commands)
+- [Writing Commands](Writing-Commands)
 - [Advanced](Advanced)
 
 **For Developers**

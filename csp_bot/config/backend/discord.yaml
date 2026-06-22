@@ -1,0 +1,7 @@
+# @package modules.bot.config
+discord:
+  _target_: csp_bot.DiscordConfig
+  bot_name: ${bot_name}
+  config:
+    _target_: chatom.discord.DiscordConfig
+    token: ${oc.env:DISCORD_TOKEN}

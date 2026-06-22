@@ -4,15 +4,6 @@ defaults:
   - _self_
 
 bot_name: CSP Bot
-app_token: .slack_app_token
-bot_token: .slack_bot_token
 
-gateway:
-  _target_: csp_bot.Gateway
-  modules:
-    - /modules/bot
-  commands:
-    - /commands/help
-    - _target_: hello.HelloCommandModel
-
+# Tokens are read from the environment: SLACK_BOT_TOKEN, SLACK_APP_TOKEN
 # csp-bot-start --config-dir=example +bot=slack

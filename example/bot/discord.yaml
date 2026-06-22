@@ -4,6 +4,6 @@ defaults:
   - _self_
 
 bot_name: CSP Bot
-token: .discord_token
 
+# Tokens are read from the environment: DISCORD_TOKEN
 # csp-bot-start --config-dir=example +bot=discord

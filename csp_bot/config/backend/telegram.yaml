@@ -1,0 +1,7 @@
+# @package modules.bot.config
+telegram:
+  _target_: csp_bot.TelegramConfig
+  bot_name: ${bot_name}
+  config:
+    _target_: chatom.telegram.TelegramConfig
+    bot_token: ${oc.env:TELEGRAM_BOT_TOKEN}
