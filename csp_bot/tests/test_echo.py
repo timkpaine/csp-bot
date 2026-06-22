@@ -70,19 +70,11 @@ class TestEchoCommand:
         assert result is None
 
     def test_execute_with_targets(self):
-        """Test executing echo with targets.
-
-        Note: The echo command calls to_chatom_user() on targets, but the
-        targets are already chatom.User objects. For this test we use a mock.
-        """
-        from unittest.mock import Mock
-
+        """Test executing echo with targets."""
         cmd = EchoCommand()
         channel = Channel(id="ch1", name="test-channel")
 
-        # Create a mock target that has the to_chatom_user method
-        mock_target = Mock()
-        mock_target.to_chatom_user.return_value = User(id="u123", name="testuser")
+        target = User(id="u123", name="testuser")
 
         bot_cmd = BotCommand(
             backend="slack",
@@ -91,7 +83,7 @@ class TestEchoCommand:
             channel_id=channel.id,
             channel_name=channel.name,
             source=User(id="u1", name="sender"),
-            targets=(mock_target,),
+            targets=(target,),
             variant=CommandVariant.REPLY_TO_OTHER,
             message=None,
         )
@@ -104,19 +96,11 @@ class TestEchoCommand:
         assert "<@u123>" in result.content or "testuser" in result.content
 
     def test_execute_with_only_targets(self):
-        """Test executing echo with only targets (no args).
-
-        Note: The echo command calls to_chatom_user() on targets, but the
-        targets are already chatom.User objects. For this test we use a mock.
-        """
-        from unittest.mock import Mock
-
+        """Test executing echo with only targets (no args)."""
         cmd = EchoCommand()
         channel = Channel(id="ch1", name="test-channel")
 
-        # Create a mock target that has the to_chatom_user method
-        mock_target = Mock()
-        mock_target.to_chatom_user.return_value = User(id="u123", name="testuser")
+        target = User(id="u123", name="testuser")
 
         bot_cmd = BotCommand(
             backend="slack",
@@ -125,7 +109,7 @@ class TestEchoCommand:
             channel_id=channel.id,
             channel_name=channel.name,
             source=User(id="u1", name="sender"),
-            targets=(mock_target,),
+            targets=(target,),
             variant=CommandVariant.REPLY_TO_OTHER,
             message=None,
         )

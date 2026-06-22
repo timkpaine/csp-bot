@@ -20,21 +20,26 @@ pip install csp-adapter-slack csp-adapter-telegram
 
 Each backend reads its credentials from environment variables, matching the names used by the built-in `backend` configs.
 
-| Backend  | Environment variables                | `chatom` config field     |
-| :------- | :----------------------------------- | :------------------------ |
-| Slack    | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | `bot_token`, `app_token`  |
-| Discord  | `DISCORD_TOKEN`                      | `token`                   |
-| Symphony | `SYMPHONY_BOT_KEY`                   | `bot_private_key_content` |
-| Telegram | `TELEGRAM_BOT_TOKEN`                 | `bot_token`               |
+| Backend  | Environment variables                                          | `chatom` config field                          |
+| :------- | :------------------------------------------------------------- | :--------------------------------------------- |
+| Slack    | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`                           | `bot_token`, `app_token`                       |
+| Discord  | `DISCORD_TOKEN`                                                | `token`                                        |
+| Symphony | `SYMPHONY_HOST`, `SYMPHONY_BOT_USERNAME`, `SYMPHONY_CERT_PATH` | `host`, `bot_username`, `bot_certificate_path` |
+| Telegram | `TELEGRAM_BOT_TOKEN`                                           | `bot_token`                                    |
 
-To set a field other than the default (for example, a Symphony key on disk rather than in the environment), override it in your own config:
+Symphony needs a host, a bot username, and either a certificate or an RSA private key.
+The built-in preset uses certificate authentication with a combined certificate/key `.pem` file on disk (`bot_certificate_path`); a path keeps long-lived key material out of the process environment.
+
+Discord's `message_content` is a [privileged intent](https://discord.com/developers/docs/topics/gateway#privileged-intents).
+The built-in preset requests it, but it must also be enabled for the bot in the Discord Developer Portal, or the bot will not receive command text in guild channels.
+
+To set a field other than the defaults — for example, to authenticate Symphony with an RSA key instead of a certificate — override it in your own config:
 
 ```yaml
 # @package modules.bot.config
 symphony:
   config:
     bot_private_key_path: /path/to/bot-key.pem
-    bot_certificate_path: /path/to/bot-cert.pem
 ```
 
 For platform-specific setup of tokens and bot accounts, follow the adapter guides:
