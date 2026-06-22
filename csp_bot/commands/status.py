@@ -1,6 +1,6 @@
 """Status command for csp-bot.
 
-Displays system and bot status information.
+Displays system and bot status information using FormattedMessage.
 """
 
 from datetime import datetime
@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, List, Optional, Type
 
 import psutil
 from chatom import Message
+from chatom.format import Bold, FormattedMessage, Table, Text
 
 from csp_bot.structs import BotCommand
 
@@ -47,25 +48,27 @@ class StatusCommand(ReplyCommand):
     def execute(self, command: BotCommand) -> Optional[Message]:
         log.info("Status command")
 
-        # Build status information
-        lines = []
+        mem = psutil.virtual_memory()
+        proc = psutil.Process()
 
-        lines.append(f"**Now**: {datetime.utcnow()}")
-        lines.append(f"**Backends**: {', '.join(self._adapters)}")
-        lines.append(f"**CPU**: {psutil.cpu_percent()}%")
-        lines.append(f"**Memory**: {psutil.virtual_memory().percent}%")
-        lines.append(f"**Memory Available**: {round(psutil.virtual_memory().available * 100 / psutil.virtual_memory().total, 2)}%")
-        lines.append(f"**Host**: {_HOSTNAME}")
-        lines.append(f"**User**: {_USER}")
+        rows = [
+            {"Metric": "Now", "Value": str(datetime.utcnow())},
+            {"Metric": "Backends", "Value": ", ".join(self._adapters)},
+            {"Metric": "CPU", "Value": f"{psutil.cpu_percent()}%"},
+            {"Metric": "Memory", "Value": f"{mem.percent}%"},
+            {"Metric": "Memory Available", "Value": f"{round(mem.available * 100 / mem.total, 2)}%"},
+            {"Metric": "Host", "Value": _HOSTNAME},
+            {"Metric": "User", "Value": _USER},
+            {"Metric": "PID", "Value": str(proc.pid)},
+            {"Metric": "Active Threads", "Value": str(active_count())},
+        ]
 
-        current_process = psutil.Process()
-        lines.append(f"**PID**: {current_process.pid}")
-        lines.append(f"**Active Threads**: {active_count()}")
-
-        content = "\n".join(lines)
+        msg = FormattedMessage(metadata={"backend": command.backend})
+        msg.content.append(Bold(child=Text(content="Bot Status")))
+        msg.content.append(Table.from_dict_list(rows, columns=["Metric", "Value"]))
 
         return Message(
-            content=content,
+            content=msg.render_for(command.backend),
             channel=command.channel,
             metadata={"backend": command.backend},
         )

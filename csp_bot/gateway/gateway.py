@@ -5,7 +5,7 @@ Provides the CSP Gateway integration with chatom-based bot.
 
 from functools import wraps
 from logging import getLogger
-from typing import List
+from typing import Any, List, Union
 
 from chatom import Message
 from csp import ts
@@ -19,7 +19,7 @@ from csp_gateway.server import (
 from pydantic import Field, model_validator
 
 from csp_bot import __version__
-from csp_bot.commands import BaseCommandModel
+from csp_bot.commands import BaseCommandModel, CommandModel
 from csp_bot.structs import BotCommand
 
 log = getLogger(__name__)
@@ -67,7 +67,8 @@ class CspBotGateway(BaseGateway):
     """CSP Bot Gateway with chatom integration."""
 
     settings: GatewaySettings = Field(default_factory=GatewaySettings)
-    commands: List[BaseCommandModel] = []
+    commands: List[Union[BaseCommandModel, CommandModel]] = []
+    deps: Any = None
 
     @model_validator(mode="before")
     @classmethod
@@ -85,7 +86,8 @@ class CspBotGateway(BaseGateway):
         self,
         modules: List[GatewayModule] = None,
         channels: GatewayChannels = None,
-        commands: List[BaseCommandModel] = None,
+        commands: List[Union[BaseCommandModel, CommandModel]] = None,
+        deps: Any = None,
         *args,
         **kwargs,
     ):
@@ -94,6 +96,7 @@ class CspBotGateway(BaseGateway):
             modules=modules,
             channels=channels,
             commands=commands,
+            deps=deps,
             *args,
             **kwargs,
         )
@@ -105,6 +108,7 @@ class CspBotGateway(BaseGateway):
         for module in self.modules:
             log.info(f"Checking module: {type(module).__name__} - is Bot: {isinstance(module, Bot)}")
             if isinstance(module, Bot):
+                module.set_deps(self.deps)
                 module.load_commands(self.commands)
 
     @wraps(BaseGateway.start)

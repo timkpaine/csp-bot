@@ -1,6 +1,6 @@
 """Tests for the echo command."""
 
-from chatom import Channel, User
+from chatom import Channel, Message, User
 
 from csp_bot.commands.echo import EchoCommand, EchoCommandModel
 from csp_bot.structs import BotCommand, CommandVariant
@@ -39,7 +39,7 @@ class TestEchoCommand:
             source=User(id="u1", name="sender"),
             targets=(),
             variant=CommandVariant.REPLY,
-            message=None,
+            message=Message(content="test"),
         )
 
         result = cmd.execute(bot_cmd)
@@ -62,7 +62,7 @@ class TestEchoCommand:
             source=User(id="u1", name="sender"),
             targets=(),
             variant=CommandVariant.REPLY,
-            message=None,
+            message=Message(content="test"),
         )
 
         result = cmd.execute(bot_cmd)
@@ -74,8 +74,6 @@ class TestEchoCommand:
         cmd = EchoCommand()
         channel = Channel(id="ch1", name="test-channel")
 
-        target = User(id="u123", name="testuser")
-
         bot_cmd = BotCommand(
             backend="slack",
             command="echo",
@@ -83,9 +81,9 @@ class TestEchoCommand:
             channel_id=channel.id,
             channel_name=channel.name,
             source=User(id="u1", name="sender"),
-            targets=(target,),
+            targets=(User(id="u123", name="testuser"),),
             variant=CommandVariant.REPLY_TO_OTHER,
-            message=None,
+            message=Message(content="test"),
         )
 
         result = cmd.execute(bot_cmd)
@@ -100,8 +98,6 @@ class TestEchoCommand:
         cmd = EchoCommand()
         channel = Channel(id="ch1", name="test-channel")
 
-        target = User(id="u123", name="testuser")
-
         bot_cmd = BotCommand(
             backend="slack",
             command="echo",
@@ -109,9 +105,9 @@ class TestEchoCommand:
             channel_id=channel.id,
             channel_name=channel.name,
             source=User(id="u1", name="sender"),
-            targets=(target,),
+            targets=(User(id="u123", name="testuser"),),
             variant=CommandVariant.REPLY_TO_OTHER,
-            message=None,
+            message=Message(content="test"),
         )
 
         result = cmd.execute(bot_cmd)

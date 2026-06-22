@@ -3,11 +3,11 @@
 Allows scheduling commands for delayed or recurring execution.
 """
 
-from html import escape
 from logging import getLogger
-from typing import TYPE_CHECKING, List, Mapping, Optional, Type
+from typing import TYPE_CHECKING, List, Optional, Type
 
 from chatom import Message
+from chatom.format import Bold, FormattedMessage, Table, Text
 from croniter import CroniterBadCronError, croniter
 from dateparser import parse
 
@@ -17,6 +17,7 @@ from .base import BaseCommand, BaseCommandModel, ReplyCommand
 
 if TYPE_CHECKING:
     from csp_bot import Bot
+    from csp_bot.persistence import ScheduleStore
 
 log = getLogger(__name__)
 
@@ -36,7 +37,7 @@ class ScheduleCommand(ReplyCommand):
     def preexecute(
         self,
         command: BotCommand,
-        schedule: Mapping[str, BotCommand],
+        schedule: "ScheduleStore",
         bot_instance: "Bot",
     ) -> Optional[BotCommand]:
         log.info(f"Schedule command preexecute: {command.command}")
@@ -58,7 +59,9 @@ class ScheduleCommand(ReplyCommand):
 
         if command.args[0] == "remove":
             for arg in command.args[1:]:
-                schedule.pop(arg, None)
+                removed = bot_instance._remove_scheduled_command(arg)
+                if not removed:
+                    log.warning("No scheduled command found for id: %s", arg)
             return None
 
         if command.args[0] == "add":
@@ -108,24 +111,17 @@ class ScheduleCommand(ReplyCommand):
 
         return None
 
-    def execute(self, command: BotCommand, schedule: Mapping[str, BotCommand]) -> Message:
+    def execute(self, command: BotCommand, schedule: "ScheduleStore") -> Message:
         log.info("Schedule list command")
 
-        # Build schedule listing
-        if command.backend == "symphony":
-            table = "<table><thead><tr><td>ID</td><td>Command</td></tr></thead><tbody>"
-            for scheduled_cmd in schedule.values():
-                table += f"<tr><td>{id(scheduled_cmd)}</td><td>{escape(scheduled_cmd.command)}</td></tr>"
-            table += "</tbody></table>"
-            content = f'<expandable-card state="collapsed"><header>Bot Schedule</header><body variant="default">{table}</body></expandable-card>'
-        else:
-            lines = ["*Scheduled Commands*", ""]
-            for scheduled_cmd in schedule.values():
-                lines.append(f"- {id(scheduled_cmd)}: /{scheduled_cmd.command}")
-            content = "\n".join(lines)
+        rows = [{"ID": record.schedule_id, "Command": f"/{record.command.command}"} for record in schedule.records()]
+
+        msg = FormattedMessage(metadata={"backend": command.backend})
+        msg.content.append(Bold(child=Text(content="Scheduled Commands")))
+        msg.content.append(Table.from_dict_list(rows, columns=["ID", "Command"]))
 
         return Message(
-            content=content,
+            content=msg.render_for(command.backend),
             channel=command.channel,
             metadata={"backend": command.backend},
         )

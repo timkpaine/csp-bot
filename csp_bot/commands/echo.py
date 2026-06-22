@@ -1,15 +1,15 @@
 """Echo command for csp-bot.
 
-A simple command that echoes back messages.
+A simple command that echoes back messages using FormattedMessage.
 """
 
 from logging import getLogger
 from typing import Optional, Type
 
 from chatom import Message
+from chatom.format import FormattedMessage, Text, UserMention
 
 from csp_bot.structs import BotCommand
-from csp_bot.utils import mention_users
 
 from .base import BaseCommand, BaseCommandModel, ReplyToOtherCommand
 
@@ -31,21 +31,27 @@ class EchoCommand(ReplyToOtherCommand):
     def execute(self, command: BotCommand) -> Optional[Message]:
         log.info(f"Echo command: {command.command}")
 
-        # Build content from args
-        content = " ".join(command.args) if command.args else ""
+        text = " ".join(command.args) if command.args else ""
+        has_targets = bool(command.targets)
 
-        # Add mentions for any tagged users
-        if command.targets:
-            mentions = mention_users(list(command.targets), command.backend)
-            if mentions:
-                content = f"{content} {mentions}".strip()
-
-        # If nothing to echo (no args and no targets), return None
-        if not content:
+        if not text and not has_targets:
             return None
 
+        msg = FormattedMessage(metadata={"backend": command.backend})
+        if text:
+            msg.content.append(Text(content=text))
+        for target in command.targets:
+            if msg.content:
+                msg.content.append(Text(content=" "))
+            msg.content.append(
+                UserMention(
+                    user_id=target.id,
+                    display_name=getattr(target, "display_name", "") or getattr(target, "name", "") or "",
+                )
+            )
+
         return Message(
-            content=content,
+            content=msg.render_for(command.backend),
             channel=command.channel,
             metadata={"backend": command.backend},
         )

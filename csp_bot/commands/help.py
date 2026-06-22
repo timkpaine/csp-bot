@@ -1,19 +1,38 @@
 """Help command for csp-bot.
 
-Uses chatom's formatting utilities for cross-platform output.
+Uses chatom's FormattedMessage for automatic cross-platform rendering.
 """
 
-from html import escape
 from logging import getLogger
-from typing import Mapping, Optional, Type
+from typing import Any, Mapping, Optional, Type
 
 from chatom import Message
+from chatom.format import FormattedMessage, Heading, Table, Text
 
 from csp_bot.structs import BotCommand
 
 from .base import BaseCommand, BaseCommandModel, ReplyCommand
 
 log = getLogger(__name__)
+
+
+def _command_backends(runner: Any) -> list:
+    """Get backends list from either legacy or new command types."""
+    if isinstance(runner, BaseCommand):
+        return runner.backends()
+    return getattr(runner, "backends", []) or []
+
+
+def _command_name(runner: Any) -> str:
+    if isinstance(runner, BaseCommand):
+        return runner.name()
+    return getattr(runner, "name", "") or ""
+
+
+def _command_help(runner: Any) -> str:
+    if isinstance(runner, BaseCommand):
+        return runner.help()
+    return getattr(runner, "help", "") or ""
 
 
 class HelpCommand(ReplyCommand):
@@ -31,75 +50,39 @@ class HelpCommand(ReplyCommand):
     def execute(
         self,
         command: BotCommand,
-        commands: Mapping[str, "BaseCommand"] = None,
+        commands: Mapping[str, Any] = None,
     ) -> Optional[Message]:
         log.info(f"Help command: {command.command}")
 
         # Collect help for each command
-        helps = []
+        rows = []
         for cmd_key, cmd_inst in commands.items():
-            # Skip hidden commands
             if cmd_key.startswith("_"):
                 continue
 
-            # Skip commands not supported on this backend
-            if cmd_inst.backends() and command.backend not in cmd_inst.backends():
+            backends = _command_backends(cmd_inst)
+            if backends and command.backend not in backends:
                 continue
 
-            # Filter by requested commands if args provided
             if command.args and cmd_key not in command.args:
                 continue
 
-            helps.append(
-                (
-                    escape(cmd_key, quote=True),
-                    escape(cmd_inst.name(), quote=True),
-                    escape(cmd_inst.help(), quote=True),
-                )
+            rows.append(
+                {
+                    "Command": f"/{cmd_key}",
+                    "Name": _command_name(cmd_inst),
+                    "Info": _command_help(cmd_inst),
+                }
             )
 
-        helps = sorted(helps, key=lambda x: x[0])
+        rows.sort(key=lambda r: r["Command"])
 
-        # Build response using chatom's FormattedMessage
-        if command.backend == "symphony":
-            # Symphony supports expandable cards
-            table = "<table><thead><tr><td>Command</td><td>Name</td><td>Info</td></tr></thead><tbody>"
-            for cmd_key, name, help_text in helps:
-                table += f"<tr><td>/{cmd_key}</td><td>{name}</td><td>{help_text}</td></tr>"
-            table += "</tbody></table>"
-            content = f'<expandable-card state="collapsed"><header>Bot Commands Help</header><body variant="default">{table}</body></expandable-card>'
-        elif command.backend == "slack":
-            # Slack uses mrkdwn code blocks for tables
-            lines = ["*Bot Commands Help*", "```"]
-            lines.append(f"{'Command':<15} {'Name':<15} {'Info'}")
-            lines.append("-" * 60)
-            for cmd_key, name, help_text in helps:
-                lines.append(f"/{cmd_key:<14} {name:<15} {help_text}")
-            lines.append("```")
-            content = "\n".join(lines)
-        elif command.backend == "discord":
-            # Discord uses markdown tables
-            lines = ["# Bot Commands Help", ""]
-            lines.append("| Command | Name | Info |")
-            lines.append("|---------|------|------|")
-            for cmd_key, name, help_text in helps:
-                lines.append(f"| /{cmd_key} | {name} | {help_text} |")
-            content = "\n".join(lines)
-        elif command.backend == "telegram":
-            # Telegram uses HTML formatting
-            lines = ["<b>Bot Commands Help</b>", ""]
-            for cmd_key, name, help_text in helps:
-                lines.append(f"/{cmd_key} — <b>{name}</b>: {help_text}")
-            content = "\n".join(lines)
-        else:
-            # Plain text fallback
-            lines = ["Bot Commands Help", ""]
-            for cmd_key, name, help_text in helps:
-                lines.append(f"/{cmd_key}: {name} - {help_text}")
-            content = "\n".join(lines)
+        msg = FormattedMessage(metadata={"backend": command.backend})
+        msg.content.append(Heading(child=Text(content="Bot Commands Help"), level=3))
+        msg.content.append(Table.from_dict_list(rows, columns=["Command", "Name", "Info"]))
 
         return Message(
-            content=content,
+            content=msg.render_for(command.backend),
             channel=command.channel,
             metadata={"backend": command.backend},
         )

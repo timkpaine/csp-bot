@@ -17,6 +17,7 @@ from chatom import Channel, Message, User
 from csp_bot import Bot, BotCommand, BotConfig, BotMessage
 from csp_bot.bot_config import SymphonyConfig
 from csp_bot.commands import HelpCommand, ReplyToOtherCommand
+from csp_bot.commands.framework import Command, CommandModel, clear_registry, command
 from csp_bot.structs import CommandVariant
 
 # Test Fixtures
@@ -261,6 +262,223 @@ class TestMetadataPropagation:
 
         assert result.metadata is not None
         assert result.metadata.get("backend") == "slack"
+
+
+class TestNewFrameworkIntegration:
+    """Integration tests for new command framework execution in Bot."""
+
+    def setup_method(self):
+        clear_registry()
+
+    def teardown_method(self):
+        clear_registry()
+
+    def test_load_commands_discovers_decorated_command(self, bot_with_symphony):
+        """Decorated commands should be auto-registered by Bot.load_commands."""
+
+        @command(name="newecho", help="Echo via new framework")
+        def newecho(ctx):
+            return f"echo: {ctx.args_text}"
+
+        bot_with_symphony.load_commands([])
+
+        assert "newecho" in bot_with_symphony._commands
+        entry = bot_with_symphony._commands["newecho"]
+        assert hasattr(entry, "handler")
+
+    def test_execute_command_supports_new_class_command(self, bot_with_symphony):
+        """Class-based new framework commands should execute via _execute_command."""
+
+        class NewPing(Command):
+            name: str = "newping"
+            help: str = "Ping via new framework"
+
+            def execute(self, ctx):
+                return ctx.reply("pong")
+
+        bot_with_symphony._commands["newping"] = NewPing()
+        bot_with_symphony._bot_user_ids["symphony"] = "bot123"
+        bot_with_symphony._bot_names["symphony"] = "TestBot"
+
+        cmd = BotCommand(
+            command="newping",
+            args=(),
+            source=User(id="user123", name="Test User"),
+            targets=(),
+            channel_id="channel789",
+            channel_name="test-channel",
+            backend="symphony",
+            variant=CommandVariant.REPLY,
+            message=Message(
+                id="msg123",
+                content="/newping",
+                author=User(id="user123"),
+                channel=Channel(id="channel789"),
+            ),
+            delay=None,
+            schedule="",
+            times_run=0,
+        )
+
+        results = bot_with_symphony._execute_command(cmd)
+
+        assert results is not None
+        assert len(results) == 1
+        assert isinstance(results[0], Message)
+        assert results[0].content == "pong"
+        assert results[0].metadata is not None
+        assert results[0].metadata.get("backend") == "symphony"
+
+    def test_execute_command_injects_deps_into_context(self, bot_with_symphony):
+        """New framework commands should receive shared deps via ctx.deps."""
+
+        class NeedsDeps(Command):
+            name: str = "needsdeps"
+            help: str = "Check deps wiring"
+
+            def execute(self, ctx):
+                return f"token={ctx.deps['token']}"
+
+        bot_with_symphony._commands["needsdeps"] = NeedsDeps()
+        bot_with_symphony.set_deps({"token": "abc123"})
+        bot_with_symphony._bot_user_ids["symphony"] = "bot123"
+        bot_with_symphony._bot_names["symphony"] = "TestBot"
+
+        cmd = BotCommand(
+            command="needsdeps",
+            args=(),
+            source=User(id="user123", name="Test User"),
+            targets=(),
+            channel_id="channel789",
+            channel_name="test-channel",
+            backend="symphony",
+            variant=CommandVariant.REPLY,
+            message=Message(
+                id="msg123",
+                content="/needsdeps",
+                author=User(id="user123"),
+                channel=Channel(id="channel789"),
+            ),
+            delay=None,
+            schedule="",
+            times_run=0,
+        )
+
+        results = bot_with_symphony._execute_command(cmd)
+
+        assert results is not None
+        assert len(results) == 1
+        assert results[0].content == "token=abc123"
+
+
+class TestRegistrationTimeBackendPolicy:
+    """Tests for registration-time backend compatibility checks."""
+
+    def setup_method(self):
+        clear_registry()
+
+    def teardown_method(self):
+        clear_registry()
+
+    def test_decorated_command_skipped_when_backend_not_active(self, bot_with_symphony):
+        """Commands limited to inactive backends should not be registered."""
+
+        @command(name="slack_only", help="Slack only", backends=["slack"])
+        def slack_only(ctx):
+            return "nope"
+
+        bot_with_symphony.load_commands([])
+
+        assert "slack_only" not in bot_with_symphony._commands
+
+    def test_decorated_command_registered_when_backend_active(self, bot_with_symphony):
+        """Commands limited to active backends should be registered."""
+
+        @command(name="symphony_only", help="Symphony only", backends=["symphony"])
+        def symphony_only(ctx):
+            return "ok"
+
+        bot_with_symphony.load_commands([])
+
+        assert "symphony_only" in bot_with_symphony._commands
+
+    def test_invalid_backend_name_raises_on_registration(self, bot_with_symphony):
+        """Unknown backend names should fail fast during registration."""
+
+        @command(name="bad_backend", help="Bad backend", backends=["not-a-backend"])
+        def bad_backend(ctx):
+            return "nope"
+
+        with pytest.raises(ValueError, match="unknown backends"):
+            bot_with_symphony.load_commands([])
+
+    def test_model_command_skipped_when_backend_not_active(self, bot_with_symphony):
+        """Model-loaded commands should obey registration-time backend filtering."""
+
+        class SlackOnlyCommand(Command):
+            name: str = "model_slack_only"
+            help: str = "Slack-only model command"
+            backends: list[str] = ["slack"]
+
+            def execute(self, ctx):
+                return "nope"
+
+        model = CommandModel(command=SlackOnlyCommand)
+        bot_with_symphony.load_commands([model])
+
+        assert "model_slack_only" not in bot_with_symphony._commands
+
+
+class TestEntryPointCommandDiscovery:
+    """Tests for plugin command discovery through Python entry points."""
+
+    def setup_method(self):
+        clear_registry()
+
+    def teardown_method(self):
+        clear_registry()
+
+    def test_load_commands_discovers_entrypoint_registered_command(self, bot_with_symphony):
+        """Entry-point loader should import plugin and register its decorated command."""
+
+        def register_plugin_command():
+            @command(name="from_ep", help="Registered from entry point")
+            def from_ep(ctx):
+                return "ok"
+
+        entry_point = MagicMock()
+        entry_point.name = "plugin.from_ep"
+        entry_point.load.return_value = register_plugin_command
+
+        with patch("csp_bot.bot.importlib_metadata.entry_points", return_value=[entry_point]):
+            bot_with_symphony.load_commands([])
+
+        assert "from_ep" in bot_with_symphony._commands
+
+    def test_model_command_precedence_over_entrypoint_command(self, bot_with_symphony):
+        """Explicit model registration should win when entry point uses same command name."""
+
+        def register_plugin_command():
+            @command(name="clash", help="Plugin command")
+            def clash(ctx):
+                return "plugin"
+
+        class ClashModelCommand(Command):
+            name: str = "clash"
+            help: str = "Model command"
+
+            def execute(self, ctx):
+                return "model"
+
+        entry_point = MagicMock()
+        entry_point.name = "plugin.clash"
+        entry_point.load.return_value = register_plugin_command
+
+        with patch("csp_bot.bot.importlib_metadata.entry_points", return_value=[entry_point]):
+            bot_with_symphony.load_commands([CommandModel(command=ClashModelCommand)])
+
+        assert "clash" in bot_with_symphony._commands
+        assert isinstance(bot_with_symphony._commands["clash"], ClashModelCommand)
 
 
 # Command Argument Parsing Tests
