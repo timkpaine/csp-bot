@@ -1,25 +1,10 @@
 # @package _global_
 defaults:
-  - /modules
+  - bot
+  - /backend:
+      - slack
   - _self_
-
-bot_name: ???
-app_token: ???
-bot_token: ???
-
-modules:
-  bot:
-    _target_: csp_bot.Bot
-    config:
-      _target_: csp_bot.BotConfig
-      slack_config:
-        _target_: csp_bot.SlackConfig
-        bot_name: ${bot_name}
-        adapter_config:
-          _target_: csp_bot.SlackAdapterConfig
-          app_token: ${app_token}
-          bot_token: ${bot_token}
 
 hydra:
   job:
-    name: csp-bot-slack[${bot_name}]
+    name: csp-bot-slack

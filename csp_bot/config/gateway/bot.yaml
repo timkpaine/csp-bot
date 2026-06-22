@@ -1,0 +1,16 @@
+# @package _global_
+defaults:
+  - /modules
+  - _self_
+
+bot_name: CSP Bot
+
+modules:
+  bot:
+    _target_: csp_bot.Bot
+    config:
+      _target_: csp_bot.BotConfig
+
+hydra:
+  job:
+    name: csp-bot

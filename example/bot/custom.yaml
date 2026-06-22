@@ -1,0 +1,18 @@
+# @package _global_
+#
+# Select any combination of backends without a dedicated gateway config by
+# starting from the bare `bot` gateway and listing the backends you want.
+defaults:
+  - /gateway: bot
+  - /backend:
+      - slack
+      - telegram
+  - _self_
+
+bot_name: CSP Bot
+
+# Tokens are read from the environment: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, TELEGRAM_BOT_TOKEN
+# csp-bot-start --config-dir=example +bot=custom
+#
+# The same result can be achieved entirely from the command line:
+# csp-bot-start +gateway=bot +backend='[slack,telegram]' +bot_name='CSP Bot'

@@ -3,10 +3,7 @@ defaults:
   - /gateway: mixed
   - _self_
 
-discord_bot_name: CSP Bot
-discord_token: .discord_token
-slack_bot_name: CSP Bot
-slack_app_token: .slack_app_token
-slack_bot_token: .slack_bot_token
+bot_name: CSP Bot
 
+# Tokens are read from the environment: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, DISCORD_TOKEN
 # csp-bot-start --config-dir=example +bot=mixed

@@ -1,23 +1,10 @@
 # @package _global_
 defaults:
-  - /modules
+  - bot
+  - /backend:
+      - discord
   - _self_
-
-bot_name: ???
-token: ???
-
-modules:
-  bot:
-    _target_: csp_bot.Bot
-    config:
-      _target_: csp_bot.BotConfig
-      discord_config:
-        _target_: csp_bot.DiscordConfig
-        bot_name: ${bot_name}
-        adapter_config:
-          _target_: csp_bot.DiscordAdapterConfig
-          token: ${token}
 
 hydra:
   job:
-    name: csp-bot-discord[${bot_name}]
+    name: csp-bot-discord

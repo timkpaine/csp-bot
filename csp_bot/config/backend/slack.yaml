@@ -1,0 +1,8 @@
+# @package modules.bot.config
+slack:
+  _target_: csp_bot.SlackConfig
+  bot_name: ${bot_name}
+  config:
+    _target_: chatom.slack.SlackConfig
+    bot_token: ${oc.env:SLACK_BOT_TOKEN}
+    app_token: ${oc.env:SLACK_APP_TOKEN}

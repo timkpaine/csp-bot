@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - /gateway: telegram
+  - _self_
+
+bot_name: CSP Bot
+
+# Tokens are read from the environment: TELEGRAM_BOT_TOKEN
+# csp-bot-start --config-dir=example +bot=telegram

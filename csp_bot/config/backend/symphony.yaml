@@ -1,0 +1,7 @@
+# @package modules.bot.config
+symphony:
+  _target_: csp_bot.SymphonyConfig
+  bot_name: ${bot_name}
+  config:
+    _target_: chatom.symphony.SymphonyConfig
+    bot_private_key_content: ${oc.env:SYMPHONY_BOT_KEY}

@@ -1,23 +1,10 @@
 # @package _global_
 defaults:
-  - /modules
+  - bot
+  - /backend:
+      - telegram
   - _self_
-
-bot_name: ???
-bot_token: ???
-
-modules:
-  bot:
-    _target_: csp_bot.Bot
-    config:
-      _target_: csp_bot.BotConfig
-      telegram_config:
-        _target_: csp_bot.TelegramConfig
-        bot_name: ${bot_name}
-        adapter_config:
-          _target_: csp_bot.TelegramAdapterConfig
-          bot_token: ${bot_token}
 
 hydra:
   job:
-    name: csp-bot-telegram[${bot_name}]
+    name: csp-bot-telegram

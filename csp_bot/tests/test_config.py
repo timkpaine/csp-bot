@@ -1,7 +1,7 @@
 """Tests for BotConfig and related configuration classes."""
 
 from csp_bot import BotConfig
-from csp_bot.bot_config import SlackConfig, SymphonyConfig
+from csp_bot.bot_config import SlackConfig, SymphonyConfig, TelegramConfig
 
 
 class TestBotConfig:
@@ -13,6 +13,7 @@ class TestBotConfig:
         assert config.discord is None
         assert config.slack is None
         assert config.symphony is None
+        assert config.telegram is None
 
     def test_config_with_slack(self):
         """Test creating a BotConfig with Slack backend."""
@@ -22,6 +23,17 @@ class TestBotConfig:
         config = BotConfig(slack=slack_config)
         assert config.slack is not None
         assert "general" in config.slack.channels
+
+    def test_config_with_multiple_backends(self):
+        """Test creating a BotConfig with several backends at once."""
+        config = BotConfig(
+            slack=SlackConfig(bot_name="Bot"),
+            telegram=TelegramConfig(bot_name="Bot"),
+        )
+        assert config.slack is not None
+        assert config.telegram is not None
+        assert config.discord is None
+        assert config.symphony is None
 
 
 class TestBackendConfig:

@@ -21,6 +21,7 @@ It is built on [csp](https://github.com/point72/csp), [csp-gateway](https://gith
 `csp-bot` makes it easy to build extensible command-driven bots, and has some key features:
 
 - connect to multiple backend chat platforms from the same instance
+- supports Slack, Symphony, Discord, and Telegram
 - register custom commands across backends
 - create scheduled commands
 - create asynchronous commands

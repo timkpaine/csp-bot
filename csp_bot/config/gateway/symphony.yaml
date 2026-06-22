@@ -1,25 +1,10 @@
 # @package _global_
 defaults:
-  - /modules
+  - bot
+  - /backend:
+      - symphony
   - _self_
-
-bot_name: ???
-cert: ???
-key: ???
-
-modules:
-  bot:
-    _target_: csp_bot.Bot
-    config:
-      _target_: csp_bot.BotConfig
-      symphony_config:
-        _target_: csp_bot.SymphonyConfig
-        bot_name: ${bot_name}
-        adapter_config:
-          _target_: csp_bot.SymphonyAdapterConfig
-          cert_string: ${cert}
-          key_string: ${key}
 
 hydra:
   job:
-    name: csp-bot-symphony[${bot_name}]
+    name: csp-bot-symphony
