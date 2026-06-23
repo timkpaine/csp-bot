@@ -12,7 +12,8 @@ from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
-from chatom import Channel, Message, User
+from chatom import Channel, ChannelType, Message, User
+from chatom.discord import DiscordChannel
 
 from csp_bot import Bot, BotCommand, BotConfig, BotMessage
 from csp_bot.bot_config import SymphonyConfig
@@ -936,6 +937,17 @@ class TestDirectMessageDetection:
 
         assert bot_with_symphony._is_direct_message(msg, "symphony") is True
 
+    def test_is_dm_from_metadata(self, bot_with_symphony):
+        """Test DM detection using metadata populated by adapters."""
+        msg = Message(
+            id="msg1",
+            content="!help",
+            author=User(id="user123"),
+            metadata={"is_dm": True},
+        )
+
+        assert bot_with_symphony._is_direct_message(msg, "discord") is True
+
     def test_slack_dm_channel_id_detection(self, bot_with_symphony):
         """Test Slack DM detection via channel ID starting with 'D'."""
         msg = MagicMock()
@@ -953,3 +965,67 @@ class TestDirectMessageDetection:
         msg.channel.stream_type = "IM"
 
         assert bot_with_symphony._is_direct_message(msg, "symphony") is True
+
+    def test_discord_dm_channel_type_detection(self, bot_with_symphony):
+        """Test Discord DM detection via generic ChannelType."""
+        msg = MagicMock()
+        msg.is_dm = False
+        msg.channel = DiscordChannel(id="dm123", channel_type=ChannelType.DIRECT)
+
+        assert bot_with_symphony._is_direct_message(msg, "discord") is True
+
+    def test_discord_dm_channel_type_metadata_detection(self, bot_with_symphony):
+        """Test Discord DM detection via generic channel metadata."""
+        msg = MagicMock()
+        msg.is_dm = False
+        msg.channel = None
+        msg.metadata = {"channel_type": "direct"}
+
+        assert bot_with_symphony._is_direct_message(msg, "discord") is True
+
+    def test_discord_dm_message_is_to_bot_without_mention(self, bot_with_symphony):
+        """Test Discord DMs imply messages are addressed to the bot."""
+        config = MagicMock()
+        config.bot_name = "CSP Bot"
+        bot_with_symphony._configs["discord"] = config
+        bot_with_symphony._bot_user_ids["discord"] = "bot123"
+
+        msg = Message(
+            id="msg1",
+            content="!help",
+            author=User(id="user123"),
+            channel=DiscordChannel(id="dm123", channel_type=ChannelType.DIRECT),
+            backend="discord",
+        )
+
+        is_to_bot, channel_id, text, mentions = bot_with_symphony._is_message_to_bot(msg, "discord")
+
+        assert is_to_bot is True
+        assert channel_id == "dm123"
+        assert text == "!help"
+        assert mentions == []
+
+    def test_discord_dm_message_uses_metadata_channel_id_without_channel(self, bot_with_symphony):
+        """Test Discord DMs still route when CSP loses the channel object."""
+        config = MagicMock()
+        config.bot_name = "CSP Bot"
+        bot_with_symphony._configs["discord"] = config
+        bot_with_symphony._bot_user_ids["discord"] = "bot123"
+
+        msg = Message(
+            id="msg1",
+            content="!help",
+            author=User(id="user123"),
+            metadata={
+                "backend": "discord",
+                "channel_id": "dm123",
+                "channel_type": "direct",
+            },
+        )
+
+        is_to_bot, channel_id, text, mentions = bot_with_symphony._is_message_to_bot(msg, "discord")
+
+        assert is_to_bot is True
+        assert channel_id == "dm123"
+        assert text == "!help"
+        assert mentions == []

@@ -204,3 +204,10 @@ class TestGetBackendFormat:
 
         fmt = get_backend_format("discord")
         assert fmt == Format.DISCORD_MARKDOWN
+
+    def test_get_backend_format_telegram(self):
+        """Test getting format for Telegram."""
+        from chatom.format import Format
+
+        fmt = get_backend_format("telegram")
+        assert fmt == Format.TELEGRAM_HTML

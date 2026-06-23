@@ -737,7 +737,8 @@ class Bot(GatewayModule):
                 content = html.unescape(content).strip()
         else:
             content = raw_content
-        channel_id = msg.channel_id or (msg.channel.id if msg.channel else "")
+        metadata = msg.metadata or {}
+        channel_id = msg.channel_id or (msg.channel.id if msg.channel else "") or str(metadata.get("channel_id") or "")
 
         # Get mentioned users from the message directly (already parsed by chatom)
         # This is more reliable than re-parsing from stripped content
@@ -817,13 +818,18 @@ class Bot(GatewayModule):
                     return str(stream_type) == "IM" or stream_type == "IM"
 
         elif backend == "discord":
-            # Check channel object for DM type
             if msg.channel:
                 channel_type = getattr(msg.channel, "channel_type", None)
-                if channel_type is not None:
-                    type_str = str(channel_type)
-                    if "DM" in type_str or "DIRECT" in type_str:
-                        return True
+                type_str = str(getattr(channel_type, "value", channel_type)).lower()
+                if type_str in {"direct", "group"}:
+                    return True
+
+            metadata = msg.metadata or {}
+            channel_type = metadata.get("channel_type")
+            if channel_type is not None:
+                type_str = str(getattr(channel_type, "value", channel_type)).lower()
+                if type_str in {"direct", "group"}:
+                    return True
 
         return False
 

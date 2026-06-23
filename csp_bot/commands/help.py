@@ -1,13 +1,10 @@
-"""Help command for csp-bot.
-
-Uses chatom's FormattedMessage for automatic cross-platform rendering.
-"""
+"""Help command for csp-bot."""
 
 from logging import getLogger
 from typing import Any, Mapping, Optional, Type
 
 from chatom import Message
-from chatom.format import FormattedMessage, Heading, Table, Text
+from chatom.format import Bold, Code, FormattedMessage, Heading, LineBreak, ListItem, Span, Table, Text, UnorderedList
 
 from csp_bot.structs import BotCommand
 
@@ -33,6 +30,44 @@ def _command_help(runner: Any) -> str:
     if isinstance(runner, BaseCommand):
         return runner.help()
     return getattr(runner, "help", "") or ""
+
+
+def _render_table_help(rows: list, backend: str) -> str:
+    msg = FormattedMessage(metadata={"backend": backend})
+    msg.content.append(Heading(child=Text(content="Bot Commands Help"), level=3))
+    msg.content.append(Table.from_dict_list(rows, columns=["Command", "Name", "Info"]))
+    return msg.render_for(backend)
+
+
+def _render_list_help(rows: list, backend: str) -> str:
+    msg = FormattedMessage(metadata={"backend": backend})
+    msg.content.append(Bold(child=Text(content="Bot Commands Help")))
+    msg.content.append(LineBreak())
+    msg.content.append(
+        UnorderedList(
+            items=[
+                ListItem(
+                    child=Span(
+                        children=[
+                            Code(content=row["Command"]),
+                            Text(content=" "),
+                            Bold(child=Text(content=row["Name"])),
+                            Text(content=": "),
+                            Text(content=row["Info"]),
+                        ]
+                    )
+                )
+                for row in rows
+            ]
+        )
+    )
+    return msg.render_for(backend)
+
+
+def _render_help(rows: list, backend: str) -> str:
+    if backend.lower() == "symphony":
+        return _render_table_help(rows, backend)
+    return _render_list_help(rows, backend)
 
 
 class HelpCommand(ReplyCommand):
@@ -77,12 +112,8 @@ class HelpCommand(ReplyCommand):
 
         rows.sort(key=lambda r: r["Command"])
 
-        msg = FormattedMessage(metadata={"backend": command.backend})
-        msg.content.append(Heading(child=Text(content="Bot Commands Help"), level=3))
-        msg.content.append(Table.from_dict_list(rows, columns=["Command", "Name", "Info"]))
-
         return Message(
-            content=msg.render_for(command.backend),
+            content=_render_help(rows, command.backend),
             channel=command.channel,
             metadata={"backend": command.backend},
         )
