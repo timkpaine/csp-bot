@@ -8,7 +8,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Tuple
 
-from chatom import Channel, Message as ChatomMessage
+from chatom import Channel, Message as ChatomMessage, User
 from csp_gateway.utils.struct import GatewayStruct
 
 __all__ = (
@@ -124,10 +124,10 @@ class BotCommand(GatewayStruct):
     args: Tuple[str]
     """Command arguments as parsed tokens."""
 
-    source: object  # chatom.User - stored as object for Struct compatibility
+    source: User
     """The user who issued the command."""
 
-    targets: Tuple[object]  # Tuple[chatom.User] - stored as object for Struct compatibility
+    targets: Tuple[User]
     """Users mentioned/tagged in the command."""
 
     channel_id: str
@@ -142,7 +142,7 @@ class BotCommand(GatewayStruct):
     variant: CommandVariant
     """The command response variant."""
 
-    message: object  # chatom.Message - stored as object for Struct compatibility
+    message: ChatomMessage
     """The original chatom Message."""
 
     delay: datetime
@@ -150,6 +150,9 @@ class BotCommand(GatewayStruct):
 
     schedule: str
     """Cron expression for recurring commands."""
+
+    schedule_id: str = ""
+    """Stable ID for delayed or scheduled command records."""
 
     times_run: int
     """Number of times this command has run."""

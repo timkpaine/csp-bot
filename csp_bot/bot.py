@@ -12,6 +12,7 @@ Key features enabled by chatom:
 
 import asyncio
 import html
+import importlib.metadata as importlib_metadata
 import re
 import threading
 import time
@@ -39,16 +40,22 @@ from .backends import (
 from .bot_config import BotConfig
 from .commands import (
     BaseCommand,
-    BaseCommandModel,
+    BotInfo,
+    Command,
+    CommandContext,
     HelpCommand,
     ScheduleCommand,
     StatusCommand,
+    execute_command_func,
+    get_registered_commands,
 )
 from .gateway import GatewayChannels, GatewayModule
+from .persistence import InMemoryStateStore, ScheduledCommandRecord, ScheduleStore, StateStore
 from .structs import (
     Backend,
     BotCommand,
     BotMessage,
+    CommandVariant,
 )
 
 log = getLogger(__name__)
@@ -71,17 +78,59 @@ class Bot(GatewayModule):
 
     config: BotConfig
 
-    _command_models: List[BaseCommandModel] = PrivateAttr(default_factory=list)
-    _commands: Dict[str, BaseCommand] = PrivateAttr(default_factory=dict)
+    _command_models: List[Any] = PrivateAttr(default_factory=list)
+    _commands: Dict[str, Any] = PrivateAttr(default_factory=dict)
     _configs: Dict[Backend, Any] = PrivateAttr(default_factory=dict)
     _adapters: Dict[Backend, Any] = PrivateAttr(default_factory=dict)
     _connected_backends: Dict[Backend, Tuple[Any, asyncio.AbstractEventLoop]] = PrivateAttr(default_factory=dict)
-    _scheduled: Dict[str, BotCommand] = PrivateAttr(default_factory=dict)
+    _schedule_store: ScheduleStore = PrivateAttr(default_factory=lambda: ScheduleStore(InMemoryStateStore()))
     _authorized_users: Dict[Backend, Set[str]] = PrivateAttr(default_factory=dict)
     _bot_user_ids: Dict[Backend, str] = PrivateAttr(default_factory=dict)
     _bot_names: Dict[Backend, str] = PrivateAttr(default_factory=dict)
+    _deps: Any = PrivateAttr(default=None)
     _thread: Optional[threading.Thread] = PrivateAttr(None)
     _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
+
+    _KNOWN_BACKENDS: Set[str] = {"discord", "slack", "symphony", "telegram"}
+
+    @staticmethod
+    def _datetime_for_now(value: Optional[datetime], now: datetime) -> Optional[datetime]:
+        # Persistence records use aware UTC datetimes. csp.now() is naive in
+        # current runtime tests, so normalize only at the csp scheduling edge.
+        if value is None:
+            return None
+        if value.tzinfo is not None and now.tzinfo is None:
+            return value.replace(tzinfo=None)
+        if value.tzinfo is None and now.tzinfo is not None:
+            return value.replace(tzinfo=now.tzinfo)
+        return value
+
+    def set_state_store(self, state_store: StateStore) -> None:
+        """Inject the state store used for bot runtime persistence."""
+        self.set_schedule_store(ScheduleStore(state_store))
+
+    def set_schedule_store(self, schedule_store: ScheduleStore) -> None:
+        """Inject a schedule store for delayed and recurring commands."""
+        self._schedule_store = schedule_store
+
+    def _restore_scheduled_commands(self, now: datetime) -> List[ScheduledCommandRecord]:
+        """Return future scheduled commands that should be re-armed."""
+        restored = []
+        for record in self._schedule_store.records():
+            next_run_at = self._datetime_for_now(record.next_run_at, now)
+            if next_run_at and next_run_at >= now:
+                restored.append(record)
+        return restored
+
+    def _store_scheduled_command(self, cmd: BotCommand, next_run_at: datetime) -> ScheduledCommandRecord:
+        return self._schedule_store.put(cmd, schedule_id=cmd.schedule_id or None, next_run_at=next_run_at)
+
+    def _remove_scheduled_command(self, schedule_id: str) -> bool:
+        return self._schedule_store.remove(schedule_id)
+
+    def set_deps(self, deps: Any) -> None:
+        """Set shared dependency object for new command framework contexts."""
+        self._deps = deps
 
     def connect(self, channels: GatewayChannels) -> None:
         """Connect to configured backends and set up message processing.
@@ -120,6 +169,9 @@ class Bot(GatewayModule):
         for backend in self._adapters.keys():
             log.info(f"Fetching bot info for {backend}...")
             self._fetch_bot_info(backend)
+
+        # Inject backends into AgentCommand subclasses
+        self._inject_backends_into_agent_commands()
 
         # Subscribe to messages from all adapters
         # chatom provides unified Message type across all backends
@@ -243,6 +295,53 @@ class Bot(GatewayModule):
             except Exception:
                 log.exception(f"Error updating user access for {backend}")
 
+    def _inject_backends_into_agent_commands(self) -> None:
+        """Inject connected BackendBase instances into AgentCommand subclasses."""
+        try:
+            from csp_bot.commands.agent import AgentCommand
+        except ImportError:
+            # pydantic-ai / chatom[agent] not installed — skip silently
+            return
+
+        backends = {}
+        loops = {}
+        for name in self._adapters:
+            result = self._ensure_backend_connected(name)
+            if result:
+                connected_backend, loop = result
+                backends[name] = connected_backend
+                loops[name] = loop
+        if backends:
+            AgentCommand.set_backends(backends, loops=loops)
+            log.info(f"Injected {len(backends)} connected backends into AgentCommand: {list(backends.keys())}")
+
+    def _track_agent_session_response(self, response: Message, command: BotCommand) -> None:
+        """Associate a sent response with an agent session for reply tracking.
+
+        Uses the original command's message ID as the key that future replies
+        will reference (e.g., thread_ts in Slack, or message reference in Discord).
+        """
+        metadata = response.metadata or {}
+        session_key = metadata.get("agent_session_key")
+        if not session_key:
+            return
+
+        try:
+            from csp_bot.commands.agent import AgentCommand
+        except ImportError:
+            return
+
+        # Use the original command's message ID — in Slack threads, replies
+        # reference this as thread_ts; in Discord, as message_reference.
+        orig_msg_id = command.message.id if command.message else None
+        if orig_msg_id:
+            AgentCommand._sessions.update_response_id(session_key, orig_msg_id)
+            log.debug(f"Tracked agent session response: session={session_key}, msg_id={orig_msg_id}")
+
+        # Also track by the response message ID if it has one
+        if response.id and response.id != orig_msg_id:
+            AgentCommand._sessions.update_response_id(session_key, response.id)
+
     def _ensure_backend_connected(self, backend: str) -> Optional[Tuple[Any, asyncio.AbstractEventLoop]]:
         """Ensure a connected backend exists for the given platform.
 
@@ -326,9 +425,14 @@ class Bot(GatewayModule):
             log.exception(f"Error resolving channel: {channel_identifier}")
             return None
 
-    def load_commands(self, command_models: List[BaseCommandModel]) -> None:
-        """Load command handlers from command models."""
+    def load_commands(self, command_models: List[Any]) -> None:
+        """Load command handlers from command models and decorator registry.
+
+        Supports both legacy BaseCommandModel and the new CommandModel.
+        """
         log.info(f"Loading {len(command_models)} commands...")
+        self._load_entrypoint_commands()
+        active_backends = self._active_backends()
         for model in command_models:
             try:
                 command = model.command()
@@ -336,17 +440,138 @@ class Bot(GatewayModule):
                 log.critical(f"Incomplete command type - implement all abstract methods: {model.command}")
                 raise e
 
-            command_str = command.command()
+            if isinstance(command, BaseCommand):
+                command_str = command.command()
+                runner: Any = command
+            elif isinstance(command, Command):
+                command_str = command.name
+                runner = command
+            else:
+                raise TypeError(f"Unsupported command type from model {type(model).__name__}: {type(command).__name__}")
+
+            if not self._is_command_backend_compatible(command_str, runner, active_backends):
+                continue
+
             log.info(f"Registered command: /{command_str}")
             if command_str in self._commands:
                 raise Exception(f"Command already registered: {command_str}\n\t{command}\n\t{self._commands[command_str]}")
 
-            self._commands[command_str] = command
+            self._commands[command_str] = runner
             self._command_models.append(model)
 
-    # =========================================================================
-    # Message Processing Nodes
-    # =========================================================================
+        # Decorator-registered commands are available globally and can be mixed
+        # with model-based commands. Explicit model definitions win on conflicts.
+        for command_name, entry in get_registered_commands().items():
+            if command_name in self._commands:
+                continue
+            if not self._is_command_backend_compatible(command_name, entry, active_backends):
+                continue
+            log.info(f"Registered decorated command: /{command_name}")
+            self._commands[command_name] = entry
+
+    def _load_entrypoint_commands(self) -> None:
+        """Load command plugins from Python entry points.
+
+        Entry points in the ``csp_bot.commands`` group are imported so they can
+        register commands through decorators or module import side effects.
+        If the loaded object is callable, it is invoked with no arguments.
+        """
+        try:
+            try:
+                entry_points = importlib_metadata.entry_points(group="csp_bot.commands")
+            except TypeError:
+                all_entry_points = importlib_metadata.entry_points()
+                entry_points = all_entry_points.get("csp_bot.commands", [])
+        except Exception:
+            log.exception("Failed to discover csp_bot.commands entry points")
+            return
+
+        for entry_point in entry_points:
+            try:
+                loaded = entry_point.load()
+            except Exception:
+                log.exception("Failed to load command entry point: %s", getattr(entry_point, "name", "<unknown>"))
+                continue
+
+            if callable(loaded):
+                try:
+                    loaded()
+                except Exception:
+                    log.exception("Failed to initialize command entry point: %s", getattr(entry_point, "name", "<unknown>"))
+                    continue
+
+            log.info("Loaded command entry point: %s", getattr(entry_point, "name", "<unknown>"))
+
+    def _active_backends(self) -> Set[str]:
+        """Return configured backends for this bot instance."""
+        active: Set[str] = set()
+        if self.config.discord:
+            active.add("discord")
+        if self.config.slack:
+            active.add("slack")
+        if self.config.symphony:
+            active.add("symphony")
+        return active
+
+    def _normalize_command_backends(self, command_name: str, backends: List[str]) -> List[str]:
+        """Normalize and validate declared command backends."""
+        normalized = [b.lower() for b in backends]
+        unknown = sorted({b for b in normalized if b not in self._KNOWN_BACKENDS})
+        if unknown:
+            raise ValueError(f"Command '{command_name}' declared unknown backends: {', '.join(unknown)}")
+        return normalized
+
+    def _is_command_backend_compatible(self, command_name: str, command_runner: Any, active_backends: Set[str]) -> bool:
+        """Check registration-time backend compatibility for a command."""
+        declared_backends = self._command_backends(command_runner)
+        if not declared_backends:
+            return True
+
+        normalized = self._normalize_command_backends(command_name, declared_backends)
+
+        # If no backends are configured yet, keep command registration permissive.
+        if not active_backends:
+            return True
+
+        if active_backends.intersection(normalized):
+            return True
+
+        log.info(
+            "Skipping command /%s: declared backends %s do not match active backends %s",
+            command_name,
+            normalized,
+            sorted(active_backends),
+        )
+        return False
+
+    def _command_backends(self, command_runner: Any) -> List[str]:
+        """Return supported backends for either legacy or new command types."""
+        if isinstance(command_runner, BaseCommand):
+            return command_runner.backends()
+        if isinstance(command_runner, Command):
+            return command_runner.backends
+        return list(getattr(command_runner, "backends", []) or [])
+
+    def _build_command_context(self, cmd: BotCommand) -> CommandContext:
+        """Build CommandContext from legacy BotCommand for new framework execution."""
+        bot_info = BotInfo(
+            id=self._get_bot_id(cmd.backend) or "",
+            name=self._get_bot_name(cmd.backend) or "",
+            version="",
+        )
+        channel = Channel(id=cmd.channel_id, name=cmd.channel_name)
+        return CommandContext(
+            command_name=cmd.command,
+            source=cmd.source,
+            targets=list(cmd.targets),
+            channel=channel,
+            message=cmd.message,
+            args=list(cmd.args),
+            args_text=" ".join(cmd.args),
+            backend=cmd.backend,
+            bot=bot_info,
+            deps=self._deps,
+        )
 
     @csp.node
     def _process_incoming_messages(self, msg: ts[Message]) -> Outputs(bot_commands=ts[[BotCommand]], unauthorized_message=ts[Message]):
@@ -400,10 +625,17 @@ class Bot(GatewayModule):
 
         with csp.start():
             csp.schedule_alarm(a_ratelimit, timedelta(seconds=self.config.ratelimit_seconds), True)
+            now = csp.now()
+            for record in self._restore_scheduled_commands(now):
+                next_run_at = self._datetime_for_now(record.next_run_at, now)
+                if next_run_at:
+                    csp.schedule_alarm(a_scheduled, next_run_at, record.command)
 
         # Handle scheduled command triggers
         if csp.ticked(a_scheduled):
-            if a_scheduled.command in self._scheduled:
+            # Removed schedules may still have an outstanding CSP alarm; the
+            # store is the source of truth and acts as the tombstone check.
+            if self._schedule_store.get(a_scheduled.schedule_id) is not None:
                 s_to_process.append(a_scheduled)
 
                 # Reschedule recurring commands
@@ -411,23 +643,25 @@ class Bot(GatewayModule):
                     now = csp.now()
                     next_time = croniter(a_scheduled.schedule, now).get_next(datetime)
                     if next_time >= now:
+                        self._store_scheduled_command(a_scheduled, next_time)
                         csp.schedule_alarm(a_scheduled, next_time, a_scheduled)
                 else:
-                    self._scheduled.pop(a_scheduled.command, None)
+                    self._remove_scheduled_command(a_scheduled.schedule_id)
 
         # Handle new commands
         if csp.ticked(cmd):
             now = csp.now()
+            delay = self._datetime_for_now(cmd.delay, now)
 
             # Check for delayed execution
-            if cmd.delay and cmd.delay >= now:
-                self._scheduled[cmd.command] = cmd
-                csp.schedule_alarm(a_scheduled, cmd.delay, cmd)
+            if delay and delay >= now:
+                self._store_scheduled_command(cmd, delay)
+                csp.schedule_alarm(a_scheduled, delay, cmd)
             # Check for scheduled execution
             elif cmd.schedule:
                 next_time = croniter(cmd.schedule, now).get_next(datetime)
                 if next_time >= now:
-                    self._scheduled[cmd.command] = cmd
+                    self._store_scheduled_command(cmd, next_time)
                     csp.schedule_alarm(a_scheduled, next_time, cmd)
             else:
                 s_to_process.append(cmd)
@@ -448,6 +682,8 @@ class Bot(GatewayModule):
                         if isinstance(item, Message):
                             log.debug(f"Adding message to buffer: {item.content[:100] if item.content else 'empty'}...")
                             s_buffer.append(item)
+                            # Track agent session responses for reply continuity
+                            self._track_agent_session_response(item, command)
                         elif isinstance(item, BotCommand):
                             next_cycle_commands.append(item)
                 else:
@@ -470,10 +706,6 @@ class Bot(GatewayModule):
                 s_buffer = []
 
             csp.schedule_alarm(a_ratelimit, timedelta(seconds=self.config.ratelimit_seconds), True)
-
-    # =========================================================================
-    # Message Analysis using chatom
-    # =========================================================================
 
     def _is_message_to_bot(self, msg: Message, backend: str) -> Tuple[bool, str, str, List[User]]:
         """Check if a message is directed at the bot.
@@ -505,7 +737,8 @@ class Bot(GatewayModule):
                 content = html.unescape(content).strip()
         else:
             content = raw_content
-        channel_id = msg.channel_id or (msg.channel.id if msg.channel else "")
+        metadata = msg.metadata or {}
+        channel_id = msg.channel_id or (msg.channel.id if msg.channel else "") or str(metadata.get("channel_id") or "")
 
         # Get mentioned users from the message directly (already parsed by chatom)
         # This is more reliable than re-parsing from stripped content
@@ -585,13 +818,18 @@ class Bot(GatewayModule):
                     return str(stream_type) == "IM" or stream_type == "IM"
 
         elif backend == "discord":
-            # Check channel object for DM type
             if msg.channel:
                 channel_type = getattr(msg.channel, "channel_type", None)
-                if channel_type is not None:
-                    type_str = str(channel_type)
-                    if "DM" in type_str or "DIRECT" in type_str:
-                        return True
+                type_str = str(getattr(channel_type, "value", channel_type)).lower()
+                if type_str in {"direct", "group"}:
+                    return True
+
+            metadata = msg.metadata or {}
+            channel_type = metadata.get("channel_type")
+            if channel_type is not None:
+                type_str = str(getattr(channel_type, "value", channel_type)).lower()
+                if type_str in {"direct", "group"}:
+                    return True
 
         return False
 
@@ -663,10 +901,6 @@ class Bot(GatewayModule):
             authorized = self._authorized_users.get(backend, set())
             return author_id in authorized
 
-    # =========================================================================
-    # Command Extraction and Execution
-    # =========================================================================
-
     def _extract_commands(
         self,
         msg: Message,
@@ -698,6 +932,11 @@ class Bot(GatewayModule):
 
             # Check for command syntax (supports both / and ! prefixes)
             if not content.startswith("/") and not content.startswith("!"):
+                # Check if this is a reply to an active agent session
+                session_cmd = self._check_agent_session_reply(msg, backend, channel_id)
+                if session_cmd:
+                    return session_cmd
+
                 # If tagged but no command, show help
                 log.info("No command prefix, showing help")
                 return self._create_help_command(msg, backend, channel_id)
@@ -741,7 +980,8 @@ class Bot(GatewayModule):
             command_runner = self._commands[command_name]
 
             # Check backend support
-            if command_runner.backends() and backend not in command_runner.backends():
+            command_backends = self._command_backends(command_runner)
+            if command_backends and backend not in command_backends:
                 log.warning(f"Command {command_name} not supported on {backend}")
                 return None
 
@@ -772,7 +1012,7 @@ class Bot(GatewayModule):
                 channel_id=target_channel,
                 channel_name=channel_name,
                 backend=backend,
-                variant=command_runner.kind(),
+                variant=command_runner.kind() if isinstance(command_runner, BaseCommand) else CommandVariant.REPLY,
                 message=msg,
                 delay=None,
                 schedule="",
@@ -781,7 +1021,7 @@ class Bot(GatewayModule):
 
             # Pre-execute hooks
             if isinstance(command_runner, ScheduleCommand):
-                return command_runner.preexecute(bot_cmd, self._scheduled, self)
+                return command_runner.preexecute(bot_cmd, self._schedule_store, self)
             elif isinstance(command_runner, StatusCommand):
                 return command_runner.preexecute(bot_cmd, self)
             return command_runner.preexecute(bot_cmd)
@@ -789,6 +1029,79 @@ class Bot(GatewayModule):
         except Exception:
             log.exception("Error extracting command")
             return None
+
+    def _check_agent_session_reply(self, msg: Message, backend: str, channel_id: str) -> Optional[BotCommand]:
+        """Check if the message is a reply to a bot response with an active agent session.
+
+        If so, constructs a BotCommand to continue the conversation.
+        """
+        try:
+            from csp_bot.commands.agent import AgentCommand
+        except ImportError:
+            return None
+
+        # Get the referenced message ID
+        ref_id = None
+        if msg.reference and msg.reference.message_id:
+            ref_id = msg.reference.message_id
+        elif msg.reply_to and msg.reply_to.id:
+            ref_id = msg.reply_to.id
+        # Check thread metadata (Slack thread_ts)
+        if not ref_id and msg.thread and msg.thread.id:
+            ref_id = msg.thread.id
+
+        if not ref_id:
+            return None
+
+        # Look up session by the bot response ID
+        session = AgentCommand._sessions.get_by_response_id(ref_id)
+        if session is None:
+            return None
+
+        # Found an active session — route the reply to the same command
+        command_name = session.command_name
+        if command_name not in self._commands:
+            log.warning(f"Agent session references unknown command: {command_name}")
+            return None
+
+        command_runner = self._commands[command_name]
+        content = msg.content or ""
+        # Strip bot mention if present
+        bot_name = self._get_bot_name(backend)
+        bot_id = self._get_bot_id(backend)
+        if bot_id:
+            content = re.sub(rf"<@!?{re.escape(bot_id)}>", "", content).strip()
+        if bot_name and content.startswith(f"@{bot_name}"):
+            content = content[len(f"@{bot_name}") :].strip()
+
+        source = User(
+            id=msg.author.id if msg.author else msg.author_id or "",
+            name=msg.author.name if msg.author else "",
+            email=getattr(msg.author, "email", "") if msg.author else "",
+            handle=getattr(msg.author, "handle", "") if msg.author else "",
+        )
+
+        channel_name = ""
+        if msg.channel and hasattr(msg.channel, "name"):
+            channel_name = msg.channel.name or ""
+
+        bot_cmd = BotCommand(
+            command=command_name,
+            args=(content,),
+            source=source,
+            targets=(),
+            channel_id=channel_id,
+            channel_name=channel_name,
+            backend=backend,
+            variant=command_runner.kind() if isinstance(command_runner, BaseCommand) else CommandVariant.REPLY,
+            message=msg,
+            delay=None,
+            schedule="",
+            times_run=0,
+        )
+
+        log.info(f"Routing reply to active agent session: command={command_name}, user={source.id}")
+        return command_runner.preexecute(bot_cmd)
 
     def _parse_command_args(
         self,
@@ -882,7 +1195,7 @@ class Bot(GatewayModule):
             channel_id=channel_id,
             channel_name=channel_name,
             backend=backend,
-            variant=command_runner.kind(),
+            variant=command_runner.kind() if isinstance(command_runner, BaseCommand) else CommandVariant.REPLY,
             message=msg,
             delay=None,
             schedule="",
@@ -896,12 +1209,22 @@ class Bot(GatewayModule):
             return None
 
         try:
-            if isinstance(command_runner, HelpCommand):
-                responses = command_runner.execute(cmd, MappingProxyType(self._commands))
-            elif isinstance(command_runner, ScheduleCommand):
-                responses = command_runner.execute(cmd, self._scheduled)
+            if isinstance(command_runner, BaseCommand):
+                if isinstance(command_runner, HelpCommand):
+                    responses = command_runner.execute(cmd, MappingProxyType(self._commands))
+                elif isinstance(command_runner, ScheduleCommand):
+                    responses = command_runner.execute(cmd, self._schedule_store)
+                else:
+                    responses = command_runner.execute(cmd)
+            elif isinstance(command_runner, Command):
+                ctx = self._build_command_context(cmd)
+                responses = [r for r in execute_command_func(command_runner.execute, ctx) if r is not None]
+            elif hasattr(command_runner, "handler"):
+                ctx = self._build_command_context(cmd)
+                responses = [r for r in execute_command_func(command_runner.handler, ctx) if r is not None]
             else:
-                responses = command_runner.execute(cmd)
+                log.error(f"Unsupported command runner type for {cmd.command}: {type(command_runner).__name__}")
+                return None
         except Exception:
             log.exception(f"Error executing command: {cmd.command}")
             return None

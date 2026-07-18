@@ -120,11 +120,6 @@ def get_backend_format(backend: Backend) -> Format:
     return get_format_for_backend(backend)
 
 
-# ============================================================================
-# Symphony MessageML formatting utilities
-# ============================================================================
-
-
 def format_with_message_ml(text: str, to_message_ml: bool = True) -> str:
     """Convert text to/from Symphony MessageML format.
 

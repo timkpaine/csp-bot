@@ -21,8 +21,13 @@ from .bot_config import BotConfig, DiscordConfig, SlackConfig, SymphonyConfig, T
 from .commands import (
     BaseCommand,
     BaseCommandModel,
+    BotInfo,
+    Command,
+    CommandContext,
+    CommandModel,
     EchoCommand,
     HelpCommand,
+    LegacyCommandAdapter,
     NoResponseCommand,
     ReplyCommand,
     ReplyToAllCommand,
@@ -30,9 +35,11 @@ from .commands import (
     ReplyToOtherCommand,
     ScheduleCommand,
     StatusCommand,
+    command,
     mention_user,
 )
 from .gateway import CspBotGateway, Gateway, GatewayChannels, GatewayModule, GatewaySettings
+from .persistence import FsspecStateStore, InMemoryStateStore, ScheduledCommandRecord, ScheduleStore, StateStore, StoredRecord
 from .structs import Backend, BotCommand, BotMessage, CommandVariant
 from .utils import format_message, get_backend_format, is_valid_url, mention_users
 
@@ -54,7 +61,14 @@ __all__ = (
     "SlackConfig",
     "SymphonyConfig",
     "TelegramConfig",
-    # Commands
+    # Commands — new framework
+    "Command",
+    "CommandContext",
+    "CommandModel",
+    "BotInfo",
+    "LegacyCommandAdapter",
+    "command",
+    # Commands — legacy
     "BaseCommand",
     "BaseCommandModel",
     "EchoCommand",
@@ -73,6 +87,13 @@ __all__ = (
     "GatewayChannels",
     "GatewayModule",
     "GatewaySettings",
+    # Persistence
+    "FsspecStateStore",
+    "InMemoryStateStore",
+    "ScheduleStore",
+    "ScheduledCommandRecord",
+    "StateStore",
+    "StoredRecord",
     # Structs
     "Backend",
     "BotCommand",
