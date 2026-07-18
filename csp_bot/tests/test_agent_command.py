@@ -131,8 +131,8 @@ class TestPreexecute:
             mock_executor.submit.return_value = MagicMock(spec=Future)
             cmd.preexecute(bot_command)
 
-        assert "old-key" not in AgentCommand._sessions._sessions
-        assert "old-response" not in AgentCommand._sessions._response_index
+        assert AgentCommand._sessions.get("old-key") is None
+        assert AgentCommand._sessions.get_by_response_id("old-response") is None
 
 
 class TestExecute:
@@ -303,8 +303,153 @@ class TestSessionStore:
         removed = store.cleanup_expired()
 
         assert removed == 1
-        assert "old-response" not in store._response_index
+        assert store.get_by_response_id("old-response") is None
         assert store.get_by_response_id("new-response") is active
+
+
+def _sample_history():
+    """Build a small but real pydantic-ai message history."""
+    from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+
+    return [
+        ModelRequest(parts=[UserPromptPart(content="What is 2+2?")]),
+        ModelResponse(parts=[TextPart(content="4")]),
+    ]
+
+
+class TestAgentSessionSerialization:
+    """Round-trip tests for the AgentSession serialization schema."""
+
+    def test_to_dict_is_json_safe(self):
+        import json
+
+        session = AgentSession(
+            user_id="U1",
+            channel_id="C1",
+            command_name="ask",
+            message_history=_sample_history(),
+            bot_response_id="resp1",
+        )
+        data = session.to_dict()
+        # Must be serializable to JSON without custom encoders.
+        json.dumps(data)
+        assert data["schema_version"] == AgentSession.SCHEMA_VERSION
+        assert data["user_id"] == "U1"
+        assert data["bot_response_id"] == "resp1"
+
+    def test_round_trip_preserves_fields(self):
+        original = AgentSession(
+            user_id="U1",
+            channel_id="C1",
+            command_name="ask",
+            message_history=_sample_history(),
+            bot_response_id="resp1",
+        )
+        restored = AgentSession.from_dict(original.to_dict())
+        assert restored.user_id == original.user_id
+        assert restored.channel_id == original.channel_id
+        assert restored.command_name == original.command_name
+        assert restored.bot_response_id == original.bot_response_id
+        assert len(restored.message_history) == len(original.message_history)
+        # The reconstructed history must round-trip identically.
+        assert restored.to_dict()["message_history"] == original.to_dict()["message_history"]
+
+    def test_round_trip_through_json_string(self):
+        import json
+
+        original = AgentSession(
+            user_id="U1",
+            channel_id="C1",
+            command_name="ask",
+            message_history=_sample_history(),
+        )
+        restored = AgentSession.from_dict(json.loads(json.dumps(original.to_dict())))
+        assert restored.command_name == "ask"
+        assert len(restored.message_history) == 2
+
+    def test_from_dict_rejects_unknown_schema_version(self):
+        data = AgentSession(user_id="U1", channel_id="C1", command_name="ask").to_dict()
+        data["schema_version"] = 999
+        with pytest.raises(ValueError, match="schema version"):
+            AgentSession.from_dict(data)
+
+
+class TestSessionStorePersistence:
+    """Sessions backed by a StateStore, including a durable backend."""
+
+    def test_store_accepts_serialized_dict_values(self):
+        """A JSON-style store that holds dicts is transparently reconstructed."""
+        from csp_bot.persistence import InMemoryStateStore
+
+        backend = InMemoryStateStore()
+        store = SessionStore(ttl_seconds=900.0, store=backend)
+        session = AgentSession(
+            user_id="U1",
+            channel_id="C1",
+            command_name="ask",
+            message_history=_sample_history(),
+            bot_response_id="resp1",
+        )
+        # Simulate a durable backend that persists the serialized form.
+        backend.put(SessionStore.namespace, session.store_key, session.to_dict())
+        backend.put(SessionStore.response_namespace, "resp1", session.store_key)
+
+        loaded = store.get(session.store_key)
+        assert loaded is not None
+        assert loaded.user_id == "U1"
+        assert len(loaded.message_history) == 2
+        assert store.get_by_response_id("resp1").store_key == session.store_key
+
+    def test_survives_store_handoff(self):
+        """A fresh SessionStore over the same backend sees prior sessions."""
+        from csp_bot.persistence import FsspecStateStore
+
+        backend = FsspecStateStore("memory://agent-sessions-test")
+        backend.clear()
+        store = SessionStore(ttl_seconds=900.0, store=backend)
+        session = AgentSession(
+            user_id="U1",
+            channel_id="C1",
+            command_name="ask",
+            message_history=_sample_history(),
+        )
+        store.put(session.store_key, session)
+        store.update_response_id(session.store_key, "bot-msg-1")
+
+        # Simulate a restart: brand-new SessionStore over the same storage.
+        reopened = SessionStore(ttl_seconds=900.0, store=backend)
+        resumed = reopened.get_by_response_id("bot-msg-1")
+        assert resumed is not None
+        assert resumed.command_name == "ask"
+        assert len(resumed.message_history) == 2
+        backend.clear()
+
+
+class TestSessionStoreInjection:
+    """AgentCommand.set_session_store wiring."""
+
+    def test_set_session_store_swaps_backend(self):
+        from csp_bot.persistence import InMemoryStateStore
+
+        backend = InMemoryStateStore()
+        AgentCommand.set_session_store(backend, ttl_seconds=123.0)
+        try:
+            assert AgentCommand._sessions.store is backend
+            assert AgentCommand._sessions._ttl == 123.0
+        finally:
+            AgentCommand._sessions = SessionStore(ttl_seconds=900.0)
+
+    def test_set_session_ttl_preserves_store(self):
+        from csp_bot.persistence import InMemoryStateStore
+
+        backend = InMemoryStateStore()
+        AgentCommand.set_session_store(backend)
+        try:
+            AgentCommand.set_session_ttl(42.0)
+            assert AgentCommand._sessions.store is backend
+            assert AgentCommand._sessions._ttl == 42.0
+        finally:
+            AgentCommand._sessions = SessionStore(ttl_seconds=900.0)
 
 
 class TestSessionIntegration:
@@ -494,3 +639,103 @@ class TestMultimodalPrompt:
 
         # No image could be attached → fall back to the plain text prompt.
         assert result == "prompt text"
+
+    def test_download_runs_on_provided_idle_loop(self):
+        """The download must run on the backend's own (idle) loop, not a fresh
+        one — the backend's aiohttp session is bound to that loop."""
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        seen = {}
+
+        class _Backend:
+            async def download_attachment(self, attachment, message=None):
+                seen["loop"] = asyncio.get_running_loop()
+                return b"IMGDATA"
+
+        try:
+            result = AgentCommand._download_on_loop(_Backend(), object(), None, loop)
+        finally:
+            loop.close()
+
+        assert result == b"IMGDATA"
+        assert seen["loop"] is loop
+
+
+class TestChannelContextNote:
+    """The agent must be told which channel it is running in."""
+
+    def test_note_includes_channel_id_and_name(self, cmd, bot_command):
+        note = cmd._channel_context_note(bot_command)
+        assert 'id="C456"' in note
+        assert "general" in note
+        assert "read_channel_history" in note
+
+    def test_note_prefers_origin_message_channel(self, cmd):
+        from chatom import Channel
+
+        command = BotCommand(
+            command="test-agent",
+            args=(),
+            source=User(id="U1", name="U"),
+            targets=(),
+            channel_id="REDIRECT",
+            channel_name="redirect",
+            backend="symphony",
+            variant=CommandVariant.REPLY,
+            message=Message(id="m", content="hi", channel=Channel(id="ORIGIN", name="the-room")),
+            delay=datetime.now(timezone.utc),
+            schedule="",
+            times_run=0,
+        )
+        note = cmd._channel_context_note(command)
+        assert 'id="ORIGIN"' in note
+        assert "the-room" in note
+
+    def test_note_empty_without_channel(self, cmd):
+        command = BotCommand(
+            command="test-agent",
+            args=(),
+            source=User(id="U1", name="U"),
+            targets=(),
+            channel_id="",
+            channel_name="",
+            backend="slack",
+            variant=CommandVariant.REPLY,
+            message=Message(id="m", content="hi"),
+            delay=datetime.now(timezone.utc),
+            schedule="",
+            times_run=0,
+        )
+        assert cmd._channel_context_note(command) == ""
+
+
+class TestPromptPrefix:
+    """Root prompt and channel injection are configurable."""
+
+    def test_default_prefix_is_channel_note(self, cmd, bot_command):
+        prefix = cmd._prompt_prefix(bot_command)
+        assert 'id="C456"' in prefix
+
+    def test_inject_channel_false_omits_note(self, cmd, bot_command):
+        cmd.inject_channel = False
+        assert cmd._prompt_prefix(bot_command) == ""
+
+    def test_root_prompt_prepended(self, cmd, bot_command):
+        cmd.root_prompt = "ROOT RULES"
+        prefix = cmd._prompt_prefix(bot_command)
+        assert prefix.startswith("ROOT RULES")
+        assert 'id="C456"' in prefix
+
+    def test_root_prompt_only_when_channel_disabled(self, cmd, bot_command):
+        cmd.inject_channel = False
+        cmd.root_prompt = "ROOT RULES"
+        assert cmd._prompt_prefix(bot_command) == "ROOT RULES"
+
+    def test_build_root_prompt_override(self, bot_command):
+        class CustomRoot(ConcreteAgentCommand):
+            def build_root_prompt(self, command):
+                return f"dynamic:{command.backend}"
+
+        prefix = CustomRoot()._prompt_prefix(bot_command)
+        assert "dynamic:slack" in prefix

@@ -28,13 +28,14 @@ from chatom.backend import BackendBase
 from chatom.format import Format, convert_format
 
 from csp_bot.commands.base import BaseCommand, ReplyCommand
+from csp_bot.persistence import InMemoryStateStore, StateStore
 from csp_bot.structs import BotCommand
 
 try:
     from chatom.agent import BackendToolset
     from chatom.agent.toolset import AccessPolicy
     from pydantic_ai import Agent
-    from pydantic_ai.messages import ModelMessage
+    from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
 except ImportError as e:
     raise ImportError("AgentCommand requires the 'agent' extra. Install with: pip install csp-bot[agent]") from e
 
@@ -53,6 +54,9 @@ def _utc_now() -> datetime:
 class AgentSession:
     """Tracks a multi-turn conversation between a user and an agent command."""
 
+    #: Bumped whenever the serialized layout in :meth:`to_dict` changes.
+    SCHEMA_VERSION: ClassVar[int] = 1
+
     user_id: str
     channel_id: str
     command_name: str
@@ -60,72 +64,136 @@ class AgentSession:
     last_active: datetime = field(default_factory=_utc_now)
     bot_response_id: Optional[str] = None  # ID of last bot message (for reply matching)
 
+    @property
+    def store_key(self) -> str:
+        """Deterministic key for this session: command:user:channel."""
+        return f"{self.command_name}:{self.user_id}:{self.channel_id}"
+
     def touch(self) -> None:
         self.last_active = _utc_now()
 
     def is_expired(self, ttl_seconds: float) -> bool:
         return (_utc_now() - self.last_active).total_seconds() > ttl_seconds
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to a JSON-safe dict for durable storage.
+
+        The pydantic-ai conversation history is serialized via
+        :data:`ModelMessagesTypeAdapter` so it round-trips across processes.
+        """
+        return {
+            "schema_version": self.SCHEMA_VERSION,
+            "user_id": self.user_id,
+            "channel_id": self.channel_id,
+            "command_name": self.command_name,
+            "message_history": ModelMessagesTypeAdapter.dump_python(self.message_history, mode="json"),
+            "last_active": self.last_active.isoformat(),
+            "bot_response_id": self.bot_response_id,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AgentSession":
+        """Reconstruct a session from :meth:`to_dict` output."""
+        version = data.get("schema_version")
+        if version != cls.SCHEMA_VERSION:
+            raise ValueError(f"Unsupported AgentSession schema version: {version!r} (expected {cls.SCHEMA_VERSION})")
+        last_active = data.get("last_active")
+        return cls(
+            user_id=data["user_id"],
+            channel_id=data["channel_id"],
+            command_name=data["command_name"],
+            message_history=list(ModelMessagesTypeAdapter.validate_python(data.get("message_history") or [])),
+            last_active=datetime.fromisoformat(last_active) if last_active else _utc_now(),
+            bot_response_id=data.get("bot_response_id"),
+        )
+
 
 class SessionStore:
-    """Thread-safe store for agent sessions with automatic expiry."""
+    """Store for agent sessions, backed by a :class:`StateStore`.
 
-    def __init__(self, ttl_seconds: float = 900.0):
-        self._sessions: Dict[str, AgentSession] = {}
-        self._response_index: Dict[str, str] = {}  # bot_response_id -> session_key
+    Sessions and the bot-response→session reply index live in two namespaces
+    of the same :class:`StateStore`. The default :class:`InMemoryStateStore`
+    keeps behavior simple (and preserves object identity for callers that
+    mutate a returned session in place), while a durable backend can be
+    injected to survive restarts without changing command implementations.
+
+    Expiry is driven by each session's ``last_active`` timestamp and the
+    configured TTL, independent of any TTL the underlying store applies.
+    """
+
+    namespace = "csp_bot.agent_sessions"
+    response_namespace = "csp_bot.agent_sessions.responses"
+
+    def __init__(self, ttl_seconds: float = 900.0, store: Optional[StateStore] = None):
         self._ttl = ttl_seconds
+        self.store: StateStore = store if store is not None else InMemoryStateStore()
         self._lock = threading.Lock()
 
     def get(self, key: str) -> Optional[AgentSession]:
         with self._lock:
-            session = self._sessions.get(key)
+            session = self._load(key)
             if session and session.is_expired(self._ttl):
-                self._remove_session(key)
+                self._remove_session(key, session)
                 return None
             return session
 
     def get_by_response_id(self, response_id: str) -> Optional[AgentSession]:
         """Look up a session by the bot's response message ID (for replies)."""
         with self._lock:
-            key = self._response_index.get(response_id)
+            key = self.store.get(self.response_namespace, response_id)
             if key is None:
                 return None
-            session = self._sessions.get(key)
+            session = self._load(key)
             if session and session.is_expired(self._ttl):
-                self._remove_session(key)
+                self._remove_session(key, session)
                 return None
             return session
 
     def put(self, key: str, session: AgentSession) -> None:
         with self._lock:
-            self._sessions[key] = session
+            self.store.put(self.namespace, key, session)
             if session.bot_response_id:
-                self._response_index[session.bot_response_id] = key
+                self.store.put(self.response_namespace, session.bot_response_id, key)
 
     def update_response_id(self, key: str, response_id: str) -> None:
         """Associate a bot response message ID with a session."""
         with self._lock:
-            session = self._sessions.get(key)
-            if session:
-                # Remove old mapping
-                if session.bot_response_id and session.bot_response_id in self._response_index:
-                    del self._response_index[session.bot_response_id]
-                session.bot_response_id = response_id
-                self._response_index[response_id] = key
+            session = self._load(key)
+            if session is None:
+                return
+            if session.bot_response_id:
+                self.store.delete(self.response_namespace, session.bot_response_id)
+            session.bot_response_id = response_id
+            self.store.put(self.namespace, key, session)
+            self.store.put(self.response_namespace, response_id, key)
 
-    def _remove_session(self, key: str) -> None:
-        """Remove a session (caller must hold lock)."""
-        session = self._sessions.pop(key, None)
+    def _load(self, key: str) -> Optional[AgentSession]:
+        """Load a session, accepting both live objects and serialized dicts."""
+        value = self.store.get(self.namespace, key)
+        if value is None or isinstance(value, AgentSession):
+            return value
+        if isinstance(value, dict):
+            return AgentSession.from_dict(value)
+        raise TypeError(f"Unexpected session value for {key!r}: {type(value)!r}")
+
+    def _remove_session(self, key: str, session: Optional[AgentSession] = None) -> None:
+        """Remove a session and its reply-index entry (caller holds lock)."""
+        if session is None:
+            session = self._load(key)
+        self.store.delete(self.namespace, key)
         if session and session.bot_response_id:
-            self._response_index.pop(session.bot_response_id, None)
+            self.store.delete(self.response_namespace, session.bot_response_id)
 
     def cleanup_expired(self) -> int:
         """Remove all expired sessions. Returns count removed."""
         with self._lock:
-            expired = [k for k, s in self._sessions.items() if s.is_expired(self._ttl)]
-            for key in expired:
-                self._remove_session(key)
-            return len(expired)
+            removed = 0
+            for record in list(self.store.records(self.namespace)):
+                session = record.value if isinstance(record.value, AgentSession) else AgentSession.from_dict(record.value)
+                if session.is_expired(self._ttl):
+                    self._remove_session(record.key, session)
+                    removed += 1
+            return removed
 
 
 def _run_agent(
@@ -199,6 +267,12 @@ class AgentCommand(ReplyCommand):
     poll_interval: int = 2
     # Maximum time to wait for agent completion (seconds)
     timeout: int = 120
+    # Maximum total tool calls the agent may make in a single run. Guards
+    # against runaway tool loops. 0 disables the cap.
+    max_tool_calls: int = 25
+    # Optional per-tool call caps for a single run (e.g. limit expensive
+    # history reads / searches). None applies no per-tool limit.
+    per_tool_limits: ClassVar[Optional[Dict[str, int]]] = None
     # Session time-to-live (seconds). 0 disables sessions.
     session_ttl_seconds: float = 900.0
     # Send a status message every N poll cycles (0 disables)
@@ -209,6 +283,13 @@ class AgentCommand(ReplyCommand):
     include_incoming_images: bool = True
     # Maximum size (bytes) of an incoming image to download for the model.
     max_incoming_image_bytes: int = 5_000_000
+    # Base preamble prepended ahead of every prompt for this command.
+    # Override per subclass (class attribute) or dynamically via
+    # build_root_prompt(). Empty by default.
+    root_prompt: str = ""
+    # When True, prepend a note describing the invoking channel so the agent
+    # can resolve references like "this channel" / "the current room".
+    inject_channel: bool = True
     # Status messages shown to the user while processing
     status_messages: ClassVar[List[str]] = [
         "Thinking...",
@@ -233,8 +314,18 @@ class AgentCommand(ReplyCommand):
 
     @classmethod
     def set_session_ttl(cls, ttl_seconds: float) -> None:
-        """Reconfigure the session TTL."""
-        cls._sessions = SessionStore(ttl_seconds=ttl_seconds)
+        """Reconfigure the session TTL, preserving the backing store."""
+        cls._sessions = SessionStore(ttl_seconds=ttl_seconds, store=cls._sessions.store)
+
+    @classmethod
+    def set_session_store(cls, store: StateStore, ttl_seconds: Optional[float] = None) -> None:
+        """Back agent sessions with a (possibly durable) StateStore.
+
+        Injecting an ``FsspecStateStore`` (or other durable backend) lets
+        sessions survive bot restarts without changing command code.
+        """
+        ttl = ttl_seconds if ttl_seconds is not None else cls.session_ttl_seconds
+        cls._sessions = SessionStore(ttl_seconds=ttl, store=store)
 
     @abstractmethod
     def build_agent(self, command: BotCommand) -> Agent:
@@ -246,6 +337,16 @@ class AgentCommand(ReplyCommand):
         """Return the user prompt string."""
         ...
 
+    def build_root_prompt(self, command: BotCommand) -> str:
+        """Return a base preamble prepended ahead of :meth:`build_prompt`.
+
+        Defaults to the :attr:`root_prompt` class attribute. Override for a
+        dynamic, per-invocation preamble. The final prompt is assembled as
+        ``root_prompt`` + channel-context note (when :attr:`inject_channel`)
+        + the command's own prompt.
+        """
+        return self.root_prompt
+
     def build_toolset(self, command: BotCommand) -> Optional[BackendToolset]:
         """Return a BackendToolset for the command's backend, or None.
 
@@ -255,13 +356,22 @@ class AgentCommand(ReplyCommand):
         - DM reads are blocked by default
         - Message count is capped per request
 
+        The toolset also enforces a per-run tool call budget
+        (:attr:`max_tool_calls`) and optional per-tool caps
+        (:attr:`per_tool_limits`) to guard against runaway tool loops.
+
         Subclasses can override :meth:`build_access_policy` to customize.
         """
         backend = self._backends.get(command.backend)
         if backend is None:
             return None
         policy = self.build_access_policy(command)
-        return BackendToolset(backend=backend, access_policy=policy)
+        return BackendToolset(
+            backend=backend,
+            access_policy=policy,
+            max_tool_calls=self.max_tool_calls,
+            per_tool_limits=self.per_tool_limits,
+        )
 
     def build_access_policy(self, command: BotCommand) -> "AccessPolicy":
         """Build the access policy for this command invocation.
@@ -317,12 +427,14 @@ class AgentCommand(ReplyCommand):
             session = self._sessions.get_by_response_id(reply_to_id)
             if session:
                 session.touch()
+                self._sessions.put(session.store_key, session)
                 return session
 
         # Second: check by user+channel (same command re-invoked)
         session = self._sessions.get(self._session_key(command))
         if session:
             session.touch()
+            self._sessions.put(session.store_key, session)
             return session
 
         return None
@@ -368,6 +480,44 @@ class AgentCommand(ReplyCommand):
             if content_type.startswith("image/") or att_type == "image":
                 images.append(att)
         return images
+
+    def _prompt_prefix(self, command: BotCommand) -> str:
+        """Assemble the root prompt and channel-context note that precede the
+        command's own prompt. Returns "" when neither applies."""
+        parts: List[str] = []
+        root = self.build_root_prompt(command)
+        if root:
+            parts.append(root)
+        if self.inject_channel:
+            note = self._channel_context_note(command)
+            if note:
+                parts.append(note)
+        return "\n\n".join(parts)
+
+    def _channel_context_note(self, command: BotCommand) -> str:
+        """Describe the invoking channel so the agent can resolve references.
+
+        Without this, a command like ``/ask`` has no idea which channel it is
+        running in, so phrases like "this channel" or "the current room" are
+        unresolvable and history tools get called with a guessed channel.
+        Uses the origin channel (where the user typed the command), not any
+        ``/room`` redirect target.
+        """
+        channel_id = command.message.channel_id if command.message and command.message.channel_id else command.channel_id
+        if not channel_id:
+            return ""
+        channel_name = ""
+        if command.message and command.message.channel:
+            channel_name = command.message.channel.name or ""
+        if not channel_name:
+            channel_name = command.channel_name or ""
+        name_part = f' (name: "{channel_name}")' if channel_name else ""
+        return (
+            f"[Context: this conversation is taking place in the channel with "
+            f'id="{channel_id}"{name_part}. When the user refers to "this channel", '
+            '"this room", "here", or "the current channel/room", they mean this '
+            "channel; pass this id to tools such as read_channel_history.]"
+        )
 
     def _build_model_prompt(self, command: BotCommand, prompt: str) -> Union[str, List[Any]]:
         """Assemble the prompt for the model, attaching incoming images.
@@ -416,10 +566,20 @@ class AgentCommand(ReplyCommand):
         message: Optional[Message],
         loop: Optional[asyncio.AbstractEventLoop],
     ) -> bytes:
-        """Download an attachment, reusing the backend's event loop if running."""
+        """Download an attachment on the backend's own event loop.
+
+        The backend's HTTP client (e.g. Symphony's aiohttp session) is bound to
+        the loop it was connected on, so the download must run there. That loop
+        is usually idle rather than running, so drive it with
+        ``run_until_complete``; only a running loop needs a threadsafe submit.
+        Running the coroutine on a fresh loop raises aiohttp's "Timeout context
+        manager should be used inside a task".
+        """
         coro = backend.download_attachment(attachment, message=message)
-        if loop is not None and loop.is_running():
-            return asyncio.run_coroutine_threadsafe(coro, loop).result()
+        if loop is not None:
+            if loop.is_running():
+                return asyncio.run_coroutine_threadsafe(coro, loop).result()
+            return loop.run_until_complete(coro)
         new_loop = asyncio.new_event_loop()
         try:
             return new_loop.run_until_complete(coro)
@@ -437,6 +597,9 @@ class AgentCommand(ReplyCommand):
             try:
                 agent = self.build_agent(command)
                 prompt_text = self.build_prompt(command)
+                prefix = self._prompt_prefix(command)
+                if prefix:
+                    prompt_text = f"{prefix}\n\n{prompt_text}"
                 prompt = self._build_model_prompt(command, prompt_text)
             except Exception:
                 log.exception("Error building agent/prompt for %s", self.command())
@@ -535,6 +698,7 @@ class AgentCommand(ReplyCommand):
             if hasattr(result, "all_messages"):
                 session.message_history = list(result.all_messages())
             session.touch()
+            self._sessions.put(session.store_key, session)
 
         except Exception:
             log.exception("AgentCommand[%s] agent execution failed", self.command())
