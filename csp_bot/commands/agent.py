@@ -513,10 +513,10 @@ class AgentCommand(ReplyCommand):
             channel_name = command.channel_name or ""
         name_part = f' (name: "{channel_name}")' if channel_name else ""
         return (
-            f'[Context: this conversation is taking place in the channel with '
+            f"[Context: this conversation is taking place in the channel with "
             f'id="{channel_id}"{name_part}. When the user refers to "this channel", '
             '"this room", "here", or "the current channel/room", they mean this '
-            'channel; pass this id to tools such as read_channel_history.]'
+            "channel; pass this id to tools such as read_channel_history.]"
         )
 
     def _build_model_prompt(self, command: BotCommand, prompt: str) -> Union[str, List[Any]]:
