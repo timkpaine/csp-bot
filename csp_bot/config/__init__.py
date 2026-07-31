@@ -1,6 +1,5 @@
 from logging import getLogger
 from pathlib import Path
-from typing import List, Optional
 
 from ccflow import RootModelRegistry, load_config as load_config_base
 
@@ -14,7 +13,7 @@ __all__ = ("load_config",)
 def load_config(
     config_dir: str = "",
     config_name: str = "",
-    overrides: Optional[List[str]] = None,
+    overrides: list[str] | None = None,
     *,
     overwrite: bool = False,
     basepath: str = "",

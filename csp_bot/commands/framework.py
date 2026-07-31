@@ -13,35 +13,32 @@ generator draining, and error handling transparently.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import (
     Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Type,
 )
 
 from ccflow import BaseModel
+from pydantic import Field
 
 from csp_bot.commands.context import CommandContext
 
 log = logging.getLogger(__name__)
 
-_COMMAND_REGISTRY: Dict[str, "CommandEntry"] = {}
+_COMMAND_REGISTRY: dict[str, CommandEntry] = {}
 
 
 class CommandEntry:
     """Internal registry entry for a command."""
 
-    __slots__ = ("name", "help", "backends", "handler", "is_class")
+    __slots__ = ("backends", "handler", "help", "is_class", "name")
 
     def __init__(
         self,
         name: str,
         help: str,
         handler: Any,
-        backends: Optional[List[str]] = None,
+        backends: list[str] | None = None,
         is_class: bool = False,
     ):
         self.name = name
@@ -54,7 +51,7 @@ class CommandEntry:
 def command(
     name: str,
     help: str = "",
-    backends: Optional[List[str]] = None,
+    backends: list[str] | None = None,
 ) -> Callable:
     """Decorator to register a function as a bot command.
 
@@ -99,7 +96,7 @@ def command(
     return decorator
 
 
-def get_registered_commands() -> Dict[str, CommandEntry]:
+def get_registered_commands() -> dict[str, CommandEntry]:
     """Return a copy of the global command registry."""
     return dict(_COMMAND_REGISTRY)
 
@@ -136,7 +133,7 @@ class Command(BaseModel):
     help: str = ""
     """Help text shown by the /help command."""
 
-    backends: List[str] = []
+    backends: list[str] = Field(default_factory=list)
     """Backends this command supports. Empty = all."""
 
     def execute(self, ctx: CommandContext) -> Any:
@@ -160,4 +157,4 @@ class CommandModel(BaseModel):
             api_url: "https://..."
     """
 
-    command: Type[Command] = Command
+    command: type[Command] = Command

@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import threading
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pickle import HIGHEST_PROTOCOL, dumps, loads
-from typing import Any, Iterable, Optional, Protocol
+from typing import Any, Protocol
 from urllib.parse import quote, unquote
 
 from csp_bot.structs import BotCommand
@@ -30,7 +31,7 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _to_utc(value: Optional[datetime]) -> Optional[datetime]:
+def _to_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
@@ -38,7 +39,7 @@ def _to_utc(value: Optional[datetime]) -> Optional[datetime]:
     return value.astimezone(timezone.utc)
 
 
-def _sort_datetime(value: Optional[datetime]) -> datetime:
+def _sort_datetime(value: datetime | None) -> datetime:
     return _to_utc(value) or datetime.max.replace(tzinfo=timezone.utc)
 
 
@@ -51,9 +52,9 @@ class StoredRecord:
     value: Any
     created_at: datetime
     updated_at: datetime
-    expires_at: Optional[datetime] = None
+    expires_at: datetime | None = None
 
-    def is_expired(self, now: Optional[datetime] = None) -> bool:
+    def is_expired(self, now: datetime | None = None) -> bool:
         if self.expires_at is None:
             return False
         return (_to_utc(now) or _utc_now()) >= _to_utc(self.expires_at)
@@ -66,7 +67,7 @@ class StateStore(Protocol):
         """Return a value, or default if missing or expired."""
         ...
 
-    def put(self, namespace: str, key: str, value: Any, ttl_seconds: Optional[float] = None) -> StoredRecord:
+    def put(self, namespace: str, key: str, value: Any, ttl_seconds: float | None = None) -> StoredRecord:
         """Store a value with an optional TTL and return its record metadata.
 
         A TTL of ``None`` means no expiry. A TTL of ``0`` expires immediately.
@@ -81,11 +82,11 @@ class StateStore(Protocol):
         """Return unexpired records in a namespace, optionally filtered by key prefix."""
         ...
 
-    def cleanup_expired(self, namespace: Optional[str] = None) -> int:
+    def cleanup_expired(self, namespace: str | None = None) -> int:
         """Remove expired records and return the number removed."""
         ...
 
-    def clear(self, namespace: Optional[str] = None) -> int:
+    def clear(self, namespace: str | None = None) -> int:
         """Remove records, optionally limited to one namespace."""
         ...
 
@@ -112,7 +113,7 @@ class InMemoryStateStore:
                 return default
             return record.value
 
-    def put(self, namespace: str, key: str, value: Any, ttl_seconds: Optional[float] = None) -> StoredRecord:
+    def put(self, namespace: str, key: str, value: Any, ttl_seconds: float | None = None) -> StoredRecord:
         now = _utc_now()
         record_key = (namespace, key)
         with self._lock:
@@ -144,7 +145,7 @@ class InMemoryStateStore:
                 if record_namespace == namespace and record_key.startswith(prefix)
             ]
 
-    def cleanup_expired(self, namespace: Optional[str] = None) -> int:
+    def cleanup_expired(self, namespace: str | None = None) -> int:
         now = _utc_now()
         with self._lock:
             expired_keys = [
@@ -156,7 +157,7 @@ class InMemoryStateStore:
                 self._records.pop(record_key, None)
             return len(expired_keys)
 
-    def clear(self, namespace: Optional[str] = None) -> int:
+    def clear(self, namespace: str | None = None) -> int:
         """Remove records, optionally limited to one namespace."""
         with self._lock:
             if namespace is None:
@@ -195,7 +196,7 @@ class FsspecStateStore:
                 return default
             return record.value
 
-    def put(self, namespace: str, key: str, value: Any, ttl_seconds: Optional[float] = None) -> StoredRecord:
+    def put(self, namespace: str, key: str, value: Any, ttl_seconds: float | None = None) -> StoredRecord:
         now = _utc_now()
         map_key = self._map_key(namespace, key)
         with self._lock:
@@ -229,7 +230,7 @@ class FsspecStateStore:
                     records.append(record)
             return records
 
-    def cleanup_expired(self, namespace: Optional[str] = None) -> int:
+    def cleanup_expired(self, namespace: str | None = None) -> int:
         now = _utc_now()
         encoded_namespace = self._encode(namespace) if namespace is not None else None
         with self._lock:
@@ -244,13 +245,13 @@ class FsspecStateStore:
                 self._delete_map_key(map_key)
             return len(expired_keys)
 
-    def clear(self, namespace: Optional[str] = None) -> int:
+    def clear(self, namespace: str | None = None) -> int:
         with self._lock:
             if namespace is None:
                 keys = list(self._mapper.keys())
             else:
                 encoded_namespace = self._encode(namespace)
-                keys = [map_key for map_key in self._mapper.keys() if map_key.startswith(f"{encoded_namespace}/")]
+                keys = [map_key for map_key in self._mapper if map_key.startswith(f"{encoded_namespace}/")]
             for map_key in keys:
                 self._delete_map_key(map_key)
             return len(keys)
@@ -267,7 +268,7 @@ class FsspecStateStore:
     def _map_key(cls, namespace: str, key: str) -> str:
         return f"{cls._encode(namespace)}/{cls._encode(key)}"
 
-    def _load_record(self, map_key: str) -> Optional[StoredRecord]:
+    def _load_record(self, map_key: str) -> StoredRecord | None:
         try:
             data = self._mapper[map_key]
         except KeyError:
@@ -291,7 +292,7 @@ class ScheduledCommandRecord:
 
     schedule_id: str
     command: BotCommand
-    next_run_at: Optional[datetime]
+    next_run_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -311,9 +312,9 @@ class ScheduleStore:
     def put(
         self,
         command: BotCommand,
-        schedule_id: Optional[str] = None,
-        next_run_at: Optional[datetime] = None,
-        ttl_seconds: Optional[float] = None,
+        schedule_id: str | None = None,
+        next_run_at: datetime | None = None,
+        ttl_seconds: float | None = None,
     ) -> ScheduledCommandRecord:
         """Store a scheduled command.
 
@@ -335,7 +336,7 @@ class ScheduleStore:
         self._store.put(self.namespace, resolved_schedule_id, record, ttl_seconds=ttl_seconds)
         return record
 
-    def get(self, schedule_id: str) -> Optional[ScheduledCommandRecord]:
+    def get(self, schedule_id: str) -> ScheduledCommandRecord | None:
         record = self._store.get(self.namespace, schedule_id)
         if isinstance(record, ScheduledCommandRecord):
             return record

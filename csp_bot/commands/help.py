@@ -1,7 +1,8 @@
 """Help command for csp-bot."""
 
+from collections.abc import Mapping
 from logging import getLogger
-from typing import Any, Mapping, Optional, Type
+from typing import Any
 
 from chatom import Message
 from chatom.format import Bold, Code, FormattedMessage, Heading, LineBreak, ListItem, Span, Table, Text, UnorderedList
@@ -85,8 +86,8 @@ class HelpCommand(ReplyCommand):
     def execute(
         self,
         command: BotCommand,
-        commands: Mapping[str, Any] = None,
-    ) -> Optional[Message]:
+        commands: Mapping[str, Any] | None = None,
+    ) -> Message | None:
         log.info(f"Help command: {command.command}")
 
         # Collect help for each command
@@ -120,4 +121,4 @@ class HelpCommand(ReplyCommand):
 
 
 class HelpCommandModel(BaseCommandModel):
-    command: Type[BaseCommand] = HelpCommand
+    command: type[BaseCommand] = HelpCommand
