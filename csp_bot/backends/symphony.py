@@ -4,11 +4,11 @@ This module provides Symphony-specific types and adapters through chatom.
 """
 
 __all__ = (
-    "SymphonyConfig",
     "SymphonyAdapter",
+    "SymphonyConfig",
     "SymphonyMessage",
-    "SymphonyUser",
     "SymphonyPresenceStatus",
+    "SymphonyUser",
 )
 
 try:
@@ -25,8 +25,6 @@ except ImportError:
 
     class SymphonyConfig(BaseModel):
         """Placeholder when chatom.symphony is not available."""
-
-        pass
 
     SymphonyAdapter = None
     SymphonyMessage = ChatomMessage

@@ -8,12 +8,12 @@ These tests cover critical integration points that have caused production bugs:
 """
 
 import asyncio
-from typing import Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
 from chatom import Channel, ChannelType, Message, User
 from chatom.discord import DiscordChannel
+from pydantic import Field
 
 from csp_bot import Bot, BotCommand, BotConfig, BotMessage
 from csp_bot.bot_config import SymphonyConfig
@@ -117,7 +117,7 @@ class TestMetadataPropagation:
             def help(self):
                 return "Test command"
 
-            def execute(self, cmd: BotCommand) -> Optional[Message]:
+            def execute(self, cmd: BotCommand) -> Message | None:
                 # Return message with backend field but NO metadata
                 return Message(
                     content="Hello",
@@ -169,7 +169,7 @@ class TestMetadataPropagation:
             def help(self):
                 return "Metadata test"
 
-            def execute(self, cmd: BotCommand) -> Optional[Message]:
+            def execute(self, cmd: BotCommand) -> Message | None:
                 return Message(
                     content="Hello",
                     channel=cmd.channel,
@@ -214,7 +214,7 @@ class TestMetadataPropagation:
             def help(self):
                 return "Backend test"
 
-            def execute(self, cmd: BotCommand) -> Optional[Message]:
+            def execute(self, cmd: BotCommand) -> Message | None:
                 # Return message with explicit backend different from command
                 return Message(
                     content="Hello",
@@ -419,7 +419,7 @@ class TestRegistrationTimeBackendPolicy:
         class SlackOnlyCommand(Command):
             name: str = "model_slack_only"
             help: str = "Slack-only model command"
-            backends: list[str] = ["slack"]
+            backends: list[str] = Field(default_factory=lambda: ["slack"])
 
             def execute(self, ctx):
                 return "nope"
@@ -493,7 +493,7 @@ class TestCommandArgumentParsing:
         tokens = ["@User", "/room", "TKP"]
         mentions = [User(id="user123", name="User")]
 
-        args, targets, channel = bot_with_symphony._parse_command_args(tokens, mentions, "slack")
+        args, _targets, channel = bot_with_symphony._parse_command_args(tokens, mentions, "slack")
 
         assert channel == "TKP"
         assert "/room" not in args
@@ -504,7 +504,7 @@ class TestCommandArgumentParsing:
         tokens = ["@User", "/channel", "general"]
         mentions = [User(id="user123", name="User")]
 
-        args, targets, channel = bot_with_symphony._parse_command_args(tokens, mentions, "slack")
+        args, _targets, channel = bot_with_symphony._parse_command_args(tokens, mentions, "slack")
 
         assert channel == "general"
         assert "/channel" not in args
@@ -515,7 +515,7 @@ class TestCommandArgumentParsing:
         tokens = ["@User", "!room", "TKP"]
         mentions = [User(id="user123", name="User")]
 
-        args, targets, channel = bot_with_symphony._parse_command_args(tokens, mentions, "slack")
+        args, _targets, channel = bot_with_symphony._parse_command_args(tokens, mentions, "slack")
 
         assert channel == "TKP"
         assert "!room" not in args
@@ -525,7 +525,7 @@ class TestCommandArgumentParsing:
         tokens = ["@User", "!channel", "random"]
         mentions = [User(id="user123", name="User")]
 
-        args, targets, channel = bot_with_symphony._parse_command_args(tokens, mentions, "slack")
+        args, _targets, channel = bot_with_symphony._parse_command_args(tokens, mentions, "slack")
 
         assert channel == "random"
         assert "!channel" not in args
@@ -584,19 +584,20 @@ class TestChannelResolution:
         mock_backend_instance.fetch_channel = mock_fetch_channel
         mock_backend_class.return_value = mock_backend_instance
 
-        with patch.object(type(mock_adapter.backend), "__call__", mock_backend_class):
-            # We need to patch the type() call
-            with patch("csp_bot.bot.type") as mock_type:
-                mock_type.return_value = mock_backend_class
+        with (
+            patch.object(type(mock_adapter.backend), "__call__", mock_backend_class),
+            patch("csp_bot.bot.type") as mock_type,
+        ):
+            mock_type.return_value = mock_backend_class
 
-                # Call the method - the key test is that it doesn't raise an exception
-                # and that the event loop handling works correctly
-                _channel = bot_with_symphony._resolve_channel("TKP", "symphony")
+            # Call the method - the key test is that it doesn't raise an exception
+            # and that the event loop handling works correctly
+            _channel = bot_with_symphony._resolve_channel("TKP", "symphony")
 
-                # Note: This may return None if the mock isn't set up quite right,
-                # but the key test is that it doesn't raise an exception
-                # and that the event loop handling works
-                assert _channel is None or hasattr(_channel, "id")
+            # Note: This may return None if the mock isn't set up quite right,
+            # but the key test is that it doesn't raise an exception
+            # and that the event loop handling works
+            assert _channel is None or hasattr(_channel, "id")
 
 
 class TestEnsureBackendConnected:

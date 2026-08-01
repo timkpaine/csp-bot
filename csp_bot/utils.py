@@ -4,22 +4,22 @@ This module provides utility functions that leverage chatom's
 cross-platform capabilities for mentions, formatting, etc.
 """
 
-from typing import Literal, Optional
+from typing import Literal
 from urllib.parse import urlparse
 
 from chatom import User, mention_user_for_backend
 from chatom.format import Format, FormattedMessage, get_format_for_backend
 
 __all__ = (
+    "Backend",
+    "format_message",
+    "format_with_message_ml",
+    "get_backend_format",
     "is_valid_url",
     "mention_user",
     "mention_users",
-    "format_message",
-    "get_backend_format",
-    "format_with_message_ml",
-    "sanitize_message",
     "recursive_format_for_message_ml",
-    "Backend",
+    "sanitize_message",
 )
 
 Backend = Literal["discord", "slack", "symphony", "telegram"]
@@ -88,7 +88,7 @@ def mention_users(
 def format_message(
     content: str,
     backend: Backend,
-    formatted: Optional[FormattedMessage] = None,
+    formatted: FormattedMessage | None = None,
 ) -> str:
     """Format a message for a specific backend.
 

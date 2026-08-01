@@ -4,7 +4,6 @@ A simple command that echoes back messages using FormattedMessage.
 """
 
 from logging import getLogger
-from typing import Optional, Type
 
 from chatom import Message
 from chatom.format import FormattedMessage, Text, UserMention
@@ -28,7 +27,7 @@ class EchoCommand(ReplyToOtherCommand):
     def help(self) -> str:
         return "Echo a message. Syntax: /echo <message> [/channel <channel>]"
 
-    def execute(self, command: BotCommand) -> Optional[Message]:
+    def execute(self, command: BotCommand) -> Message | None:
         log.info(f"Echo command: {command.command}")
 
         text = " ".join(command.args) if command.args else ""
@@ -58,4 +57,4 @@ class EchoCommand(ReplyToOtherCommand):
 
 
 class EchoCommandModel(BaseCommandModel):
-    command: Type[BaseCommand] = EchoCommand
+    command: type[BaseCommand] = EchoCommand

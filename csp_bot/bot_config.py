@@ -4,8 +4,6 @@ This module provides configuration classes that wrap chatom's
 backend-specific configurations with bot-specific settings.
 """
 
-from typing import List, Optional, Set
-
 from ccflow import BaseModel
 from pydantic import Field
 
@@ -38,12 +36,12 @@ class BackendConfig(BaseModel):
         description="Name of the bot. Auto-detected from backend if empty.",
     )
 
-    channels: Set[str] = Field(
+    channels: set[str] = Field(
         default_factory=set,
         description="Channels/rooms to subscribe to. Empty means all.",
     )
 
-    user_access_channels: List[str] = Field(
+    user_access_channels: list[str] = Field(
         default_factory=list,
         description="If non-empty, only users from these channels can interact with the bot.",
     )
@@ -53,7 +51,7 @@ class BackendConfig(BaseModel):
         description="How frequently to query user access channels. 0 means only at startup.",
     )
 
-    unauthorized_msg: Optional[str] = Field(
+    unauthorized_msg: str | None = Field(
         default="You are not authorized to interact with this bot.",
         description="Message to send when unauthorized user interacts. None means no message.",
     )
@@ -107,10 +105,10 @@ class BotConfig(BaseModel):
     their respective settings.
     """
 
-    discord: Optional[DiscordConfig] = None
-    slack: Optional[SlackConfig] = None
-    symphony: Optional[SymphonyConfig] = None
-    telegram: Optional[TelegramConfig] = None
+    discord: DiscordConfig | None = None
+    slack: SlackConfig | None = None
+    symphony: SymphonyConfig | None = None
+    telegram: TelegramConfig | None = None
 
     ratelimit_seconds: float = Field(
         default=1.0,

@@ -6,16 +6,15 @@ leveraging chatom's unified message and user models.
 
 from datetime import datetime
 from enum import Enum
-from typing import Tuple
 
 from chatom import Channel, Message as ChatomMessage, User
 from csp_gateway.utils.struct import GatewayStruct
 
 __all__ = (
     "Backend",
-    "CommandVariant",
     "BotCommand",
     "BotMessage",
+    "CommandVariant",
 )
 
 
@@ -64,7 +63,7 @@ class BotMessage(GatewayStruct):
     backend: str
     """Target backend platform."""
 
-    mentions: Tuple[str]
+    mentions: tuple[str]
     """User IDs to mention in the message."""
 
     formatted: object  # FormattedMessage, but can't use pydantic in Struct
@@ -121,13 +120,13 @@ class BotCommand(GatewayStruct):
     command: str
     """The command name (without leading /)."""
 
-    args: Tuple[str]
+    args: tuple[str]
     """Command arguments as parsed tokens."""
 
     source: User
     """The user who issued the command."""
 
-    targets: Tuple[User]
+    targets: tuple[User]
     """Users mentioned/tagged in the command."""
 
     channel_id: str

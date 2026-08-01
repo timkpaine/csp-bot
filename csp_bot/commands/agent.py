@@ -18,10 +18,11 @@ import logging
 import os
 import threading
 from abc import abstractmethod
+from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Union
+from typing import Any, ClassVar
 
 from chatom import Channel, Message
 from chatom.backend import BackendBase
@@ -60,9 +61,9 @@ class AgentSession:
     user_id: str
     channel_id: str
     command_name: str
-    message_history: List[ModelMessage] = field(default_factory=list)
+    message_history: list[ModelMessage] = field(default_factory=list)
     last_active: datetime = field(default_factory=_utc_now)
-    bot_response_id: Optional[str] = None  # ID of last bot message (for reply matching)
+    bot_response_id: str | None = None  # ID of last bot message (for reply matching)
 
     @property
     def store_key(self) -> str:
@@ -75,7 +76,7 @@ class AgentSession:
     def is_expired(self, ttl_seconds: float) -> bool:
         return (_utc_now() - self.last_active).total_seconds() > ttl_seconds
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-safe dict for durable storage.
 
         The pydantic-ai conversation history is serialized via
@@ -92,7 +93,7 @@ class AgentSession:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AgentSession":
+    def from_dict(cls, data: dict[str, Any]) -> AgentSession:
         """Reconstruct a session from :meth:`to_dict` output."""
         version = data.get("schema_version")
         if version != cls.SCHEMA_VERSION:
@@ -124,12 +125,12 @@ class SessionStore:
     namespace = "csp_bot.agent_sessions"
     response_namespace = "csp_bot.agent_sessions.responses"
 
-    def __init__(self, ttl_seconds: float = 900.0, store: Optional[StateStore] = None):
+    def __init__(self, ttl_seconds: float = 900.0, store: StateStore | None = None):
         self._ttl = ttl_seconds
         self.store: StateStore = store if store is not None else InMemoryStateStore()
         self._lock = threading.Lock()
 
-    def get(self, key: str) -> Optional[AgentSession]:
+    def get(self, key: str) -> AgentSession | None:
         with self._lock:
             session = self._load(key)
             if session and session.is_expired(self._ttl):
@@ -137,7 +138,7 @@ class SessionStore:
                 return None
             return session
 
-    def get_by_response_id(self, response_id: str) -> Optional[AgentSession]:
+    def get_by_response_id(self, response_id: str) -> AgentSession | None:
         """Look up a session by the bot's response message ID (for replies)."""
         with self._lock:
             key = self.store.get(self.response_namespace, response_id)
@@ -167,7 +168,7 @@ class SessionStore:
             self.store.put(self.namespace, key, session)
             self.store.put(self.response_namespace, response_id, key)
 
-    def _load(self, key: str) -> Optional[AgentSession]:
+    def _load(self, key: str) -> AgentSession | None:
         """Load a session, accepting both live objects and serialized dicts."""
         value = self.store.get(self.namespace, key)
         if value is None or isinstance(value, AgentSession):
@@ -176,7 +177,7 @@ class SessionStore:
             return AgentSession.from_dict(value)
         raise TypeError(f"Unexpected session value for {key!r}: {type(value)!r}")
 
-    def _remove_session(self, key: str, session: Optional[AgentSession] = None) -> None:
+    def _remove_session(self, key: str, session: AgentSession | None = None) -> None:
         """Remove a session and its reply-index entry (caller holds lock)."""
         if session is None:
             session = self._load(key)
@@ -198,9 +199,9 @@ class SessionStore:
 
 def _run_agent(
     agent: Agent,
-    prompt: Union[str, Sequence[Any]],
-    loop: Optional[asyncio.AbstractEventLoop] = None,
-    message_history: Optional[Sequence[ModelMessage]] = None,
+    prompt: str | Sequence[Any],
+    loop: asyncio.AbstractEventLoop | None = None,
+    message_history: Sequence[ModelMessage] | None = None,
 ) -> Any:
     """Run an agent on an event loop (for use in thread pool).
 
@@ -258,9 +259,9 @@ class AgentCommand(ReplyCommand):
                 return " ".join(command.args)
     """
 
-    _backends: ClassVar[Dict[str, BackendBase]] = {}
-    _backend_loops: ClassVar[Dict[str, asyncio.AbstractEventLoop]] = {}
-    _futures: ClassVar[Dict[str, Future]] = {}
+    _backends: ClassVar[dict[str, BackendBase]] = {}
+    _backend_loops: ClassVar[dict[str, asyncio.AbstractEventLoop]] = {}
+    _futures: ClassVar[dict[str, Future]] = {}
     _sessions: ClassVar[SessionStore] = SessionStore(ttl_seconds=900.0)
 
     # Configurable delay between polling checks (seconds)
@@ -272,7 +273,7 @@ class AgentCommand(ReplyCommand):
     max_tool_calls: int = 25
     # Optional per-tool call caps for a single run (e.g. limit expensive
     # history reads / searches). None applies no per-tool limit.
-    per_tool_limits: ClassVar[Optional[Dict[str, int]]] = None
+    per_tool_limits: ClassVar[dict[str, int] | None] = None
     # Session time-to-live (seconds). 0 disables sessions.
     session_ttl_seconds: float = 900.0
     # Send a status message every N poll cycles (0 disables)
@@ -291,7 +292,7 @@ class AgentCommand(ReplyCommand):
     # can resolve references like "this channel" / "the current room".
     inject_channel: bool = True
     # Status messages shown to the user while processing
-    status_messages: ClassVar[List[str]] = [
+    status_messages: ClassVar[list[str]] = [
         "Thinking...",
         "Still working on it...",
         "Processing your request...",
@@ -305,8 +306,8 @@ class AgentCommand(ReplyCommand):
     @classmethod
     def set_backends(
         cls,
-        backends: Dict[str, BackendBase],
-        loops: Optional[Dict[str, asyncio.AbstractEventLoop]] = None,
+        backends: dict[str, BackendBase],
+        loops: dict[str, asyncio.AbstractEventLoop] | None = None,
     ) -> None:
         """Inject backend instances. Called by Bot after adapter setup."""
         cls._backends = backends
@@ -318,7 +319,7 @@ class AgentCommand(ReplyCommand):
         cls._sessions = SessionStore(ttl_seconds=ttl_seconds, store=cls._sessions.store)
 
     @classmethod
-    def set_session_store(cls, store: StateStore, ttl_seconds: Optional[float] = None) -> None:
+    def set_session_store(cls, store: StateStore, ttl_seconds: float | None = None) -> None:
         """Back agent sessions with a (possibly durable) StateStore.
 
         Injecting an ``FsspecStateStore`` (or other durable backend) lets
@@ -347,7 +348,7 @@ class AgentCommand(ReplyCommand):
         """
         return self.root_prompt
 
-    def build_toolset(self, command: BotCommand) -> Optional[BackendToolset]:
+    def build_toolset(self, command: BotCommand) -> BackendToolset | None:
         """Return a BackendToolset for the command's backend, or None.
 
         The toolset is configured with an AccessPolicy that enforces:
@@ -373,7 +374,7 @@ class AgentCommand(ReplyCommand):
             per_tool_limits=self.per_tool_limits,
         )
 
-    def build_access_policy(self, command: BotCommand) -> "AccessPolicy":
+    def build_access_policy(self, command: BotCommand) -> AccessPolicy:
         """Build the access policy for this command invocation.
 
         Override in subclasses to customize access rules. The default
@@ -418,7 +419,7 @@ class AgentCommand(ReplyCommand):
         """Key for session lookup: command:user:channel."""
         return f"{self.command()}:{command.source.id}:{command.channel_id}"
 
-    def _get_session(self, command: BotCommand) -> Optional[AgentSession]:
+    def _get_session(self, command: BotCommand) -> AgentSession | None:
         """Find an existing session — by reply reference or by user+channel."""
         # First: check if this is a reply to a bot message
         msg = command.message
@@ -468,7 +469,7 @@ class AgentCommand(ReplyCommand):
                 return Channel(id=origin_id, name=origin_name)
         return command.channel
 
-    def _incoming_image_attachments(self, command: BotCommand) -> List[Any]:
+    def _incoming_image_attachments(self, command: BotCommand) -> list[Any]:
         """Return image attachments on the incoming message, if any."""
         msg = command.message
         if not msg or not getattr(msg, "attachments", None):
@@ -484,7 +485,7 @@ class AgentCommand(ReplyCommand):
     def _prompt_prefix(self, command: BotCommand) -> str:
         """Assemble the root prompt and channel-context note that precede the
         command's own prompt. Returns "" when neither applies."""
-        parts: List[str] = []
+        parts: list[str] = []
         root = self.build_root_prompt(command)
         if root:
             parts.append(root)
@@ -519,7 +520,7 @@ class AgentCommand(ReplyCommand):
             "channel; pass this id to tools such as read_channel_history.]"
         )
 
-    def _build_model_prompt(self, command: BotCommand, prompt: str) -> Union[str, List[Any]]:
+    def _build_model_prompt(self, command: BotCommand, prompt: str) -> str | list[Any]:
         """Assemble the prompt for the model, attaching incoming images.
 
         Downloads any image attachments on the incoming message (via the
@@ -541,7 +542,7 @@ class AgentCommand(ReplyCommand):
         from pydantic_ai import BinaryContent
 
         backend_loop = self._backend_loops.get(command.backend)
-        parts: List[Any] = [prompt]
+        parts: list[Any] = [prompt]
         for att in images:
             if getattr(att, "size", None) and att.size > self.max_incoming_image_bytes:
                 log.warning("Skipping incoming image %r: %s bytes exceeds limit", getattr(att, "filename", ""), att.size)
@@ -563,8 +564,8 @@ class AgentCommand(ReplyCommand):
     def _download_on_loop(
         backend: BackendBase,
         attachment: Any,
-        message: Optional[Message],
-        loop: Optional[asyncio.AbstractEventLoop],
+        message: Message | None,
+        loop: asyncio.AbstractEventLoop | None,
     ) -> bytes:
         """Download an attachment on the backend's own event loop.
 
@@ -624,7 +625,7 @@ class AgentCommand(ReplyCommand):
         command.delay = _utc_now() + timedelta(seconds=self.poll_interval)
         return command
 
-    def execute(self, command: BotCommand) -> Optional[Union[Message, List[Union[Message, "BaseCommand"]], "BaseCommand"]]:
+    def execute(self, command: BotCommand) -> Message | list[Message | BaseCommand] | BaseCommand | None:
         """Return result when ready; reschedule if still running."""
         # Handle errors from preexecute
         if command.args and len(command.args) == 1 and str(command.args[0]).startswith("ERROR:"):
@@ -660,7 +661,7 @@ class AgentCommand(ReplyCommand):
             command.delay = _utc_now() + timedelta(seconds=self.poll_interval)
             command.times_run += 1
 
-            result: List[Any] = [command]
+            result: list[Any] = [command]
             if self.status_every_n_polls and self.status_messages:
                 # Status messages go to the origin channel (where the user
                 # typed the command), NOT the /room redirect destination.
