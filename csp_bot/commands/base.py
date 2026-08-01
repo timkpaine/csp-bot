@@ -5,7 +5,7 @@ Commands can leverage chatom's cross-platform features.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Type, Union
+from typing import Union
 
 from ccflow import BaseModel
 from chatom import Message
@@ -27,7 +27,7 @@ class BaseCommand(ABC):
         ...
 
     @staticmethod
-    def backends() -> List[Backend]:
+    def backends() -> list[Backend]:
         """Return supported backends. Empty means all backends."""
         return []
 
@@ -65,7 +65,7 @@ class BaseCommand(ABC):
     def execute(
         self,
         command: BotCommand,
-    ) -> Union[Message, BotMessage, List[Message], List[BotMessage], "BaseCommand", List["BaseCommand"], None]:
+    ) -> Union[Message, BotMessage, list[Message], list[BotMessage], "BaseCommand", list["BaseCommand"], None]:
         """Execute the command and return response(s).
 
         Commands can return:
@@ -135,4 +135,4 @@ class ReplyToAllCommand(BaseCommand):
 class BaseCommandModel(BaseModel):
     """Model for registering commands via configuration."""
 
-    command: Type[BaseCommand]
+    command: type[BaseCommand]

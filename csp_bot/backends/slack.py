@@ -4,11 +4,11 @@ This module provides Slack-specific types and adapters through chatom.
 """
 
 __all__ = (
-    "SlackConfig",
     "SlackAdapter",
+    "SlackConfig",
     "SlackMessage",
-    "SlackUser",
     "SlackPresenceStatus",
+    "SlackUser",
 )
 
 try:
@@ -25,8 +25,6 @@ except ImportError:
 
     class SlackConfig(BaseModel):
         """Placeholder when chatom.slack is not available."""
-
-        pass
 
     SlackAdapter = None
     SlackMessage = ChatomMessage

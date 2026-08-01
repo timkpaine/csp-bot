@@ -38,35 +38,31 @@ except ImportError:
     pass
 
 __all__ = (
-    # New framework
+    "AgentCommand",
+    "BaseCommand",
+    "BaseCommandModel",
+    "BotInfo",
     "Command",
     "CommandContext",
     "CommandEntry",
     "CommandModel",
-    "BotInfo",
+    "EchoCommand",
+    "EchoCommandModel",
+    "HelpCommand",
+    "HelpCommandModel",
     "LegacyCommandAdapter",
-    "command",
-    "clear_registry",
-    "get_registered_commands",
-    "execute_command_func",
-    # Legacy base classes
-    "AgentCommand",
-    "BaseCommand",
-    "BaseCommandModel",
     "NoResponseCommand",
     "ReplyCommand",
     "ReplyToAllCommand",
     "ReplyToAuthorCommand",
     "ReplyToOtherCommand",
-    # Built-in commands
-    "EchoCommand",
-    "EchoCommandModel",
-    "HelpCommand",
-    "HelpCommandModel",
     "ScheduleCommand",
     "ScheduleCommandModel",
     "StatusCommand",
     "StatusCommandModel",
-    # Utilities
+    "clear_registry",
+    "command",
+    "execute_command_func",
+    "get_registered_commands",
     "mention_user",
 )

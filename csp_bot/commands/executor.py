@@ -12,7 +12,7 @@ import asyncio
 import inspect
 import logging
 import threading
-from typing import Any, List, Optional, Union
+from typing import Any
 
 from chatom import Message
 from chatom.base.attachment import Attachment, AttachmentType, Image as BaseImage
@@ -25,8 +25,8 @@ log = logging.getLogger(__name__)
 
 # Module-level async event loop running in a background thread.
 # Lazily initialised on first use.
-_loop: Optional[asyncio.AbstractEventLoop] = None
-_loop_thread: Optional[threading.Thread] = None
+_loop: asyncio.AbstractEventLoop | None = None
+_loop_thread: threading.Thread | None = None
 _loop_lock = threading.Lock()
 
 
@@ -95,7 +95,7 @@ def _extract_attachments(fm: FormattedMessage) -> list:
     return result
 
 
-def _coerce_response(item: Any, backend: str) -> Optional[Union[Message, BotCommand]]:
+def _coerce_response(item: Any, backend: str) -> Message | BotCommand | None:
     """Coerce a command return value into a chatom Message.
 
     Accepts:
@@ -149,7 +149,7 @@ def execute_command_func(
     fn: Any,
     ctx: Any,
     timeout: float = 60.0,
-) -> List[Optional[Union[Message, BotCommand]]]:
+) -> list[Message | BotCommand | None]:
     """Execute a command callable and return a list of Messages.
 
     Detects the function signature and dispatches accordingly:
@@ -178,7 +178,7 @@ def execute_command_func(
         return _run_sync_function(fn, ctx, backend)
 
 
-def _run_sync_function(fn: Any, ctx: Any, backend: str) -> List[Optional[Union[Message, BotCommand]]]:
+def _run_sync_function(fn: Any, ctx: Any, backend: str) -> list[Message | BotCommand | None]:
     """Execute a plain sync function."""
     try:
         result = fn(ctx)
@@ -193,7 +193,7 @@ def _run_async_function(
     ctx: Any,
     backend: str,
     timeout: float,
-) -> List[Optional[Union[Message, BotCommand]]]:
+) -> list[Message | BotCommand | None]:
     """Execute an async function in the background event loop."""
     loop = _get_event_loop()
     try:
@@ -213,9 +213,9 @@ def _run_sync_generator(
     ctx: Any,
     backend: str,
     timeout: float,
-) -> List[Optional[Union[Message, BotCommand]]]:
+) -> list[Message | BotCommand | None]:
     """Drain a sync generator until it yields None sentinel."""
-    results: List[Optional[Union[Message, BotCommand]]] = []
+    results: list[Message | BotCommand | None] = []
     try:
         gen = fn(ctx)
         for item in gen:
@@ -234,9 +234,9 @@ async def _drain_async_gen(
     fn: Any,
     ctx: Any,
     backend: str,
-) -> List[Optional[Union[Message, BotCommand]]]:
+) -> list[Message | BotCommand | None]:
     """Async helper to drain an async generator until None sentinel."""
-    results: List[Optional[Union[Message, BotCommand]]] = []
+    results: list[Message | BotCommand | None] = []
     async for item in fn(ctx):
         if item is None:
             break
@@ -249,7 +249,7 @@ def _run_async_generator(
     ctx: Any,
     backend: str,
     timeout: float,
-) -> List[Optional[Union[Message, BotCommand]]]:
+) -> list[Message | BotCommand | None]:
     """Drain an async generator in the background event loop."""
     loop = _get_event_loop()
     try:
