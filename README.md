@@ -16,7 +16,7 @@
 ## Features
 
 `csp-bot` is a framework for building chat bots.
-It is built on [csp](https://github.com/point72/csp), [csp-gateway](https://github.com/point72/csp-gateway), and [ccflow](https://github.com/point72/ccflow)
+It is built on [csp](https://github.com/point72/csp), [csp-gateway](https://github.com/point72/csp-gateway), [ccflow](https://github.com/point72/ccflow), and [chatom](https://github.com/1kbgz/chatom).
 
 `csp-bot` makes it easy to build extensible command-driven bots, and has some key features:
 
