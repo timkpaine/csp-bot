@@ -3,12 +3,12 @@
 Displays system and bot status information using FormattedMessage.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from getpass import getuser
 from logging import getLogger
 from socket import gethostname
 from threading import active_count
-from typing import TYPE_CHECKING, List, Optional, Type
+from typing import TYPE_CHECKING, ClassVar
 
 import psutil
 from chatom import Message
@@ -30,7 +30,7 @@ _USER = getuser()
 class StatusCommand(ReplyCommand):
     """Display bot and system status."""
 
-    _adapters: List[str] = []
+    _adapters: ClassVar[list[str]] = []
 
     def command(self) -> str:
         return "status"
@@ -45,14 +45,14 @@ class StatusCommand(ReplyCommand):
         self._adapters = list(bot_instance._adapters.keys())
         return command
 
-    def execute(self, command: BotCommand) -> Optional[Message]:
+    def execute(self, command: BotCommand) -> Message | None:
         log.info("Status command")
 
         mem = psutil.virtual_memory()
         proc = psutil.Process()
 
         rows = [
-            {"Metric": "Now", "Value": str(datetime.utcnow())},
+            {"Metric": "Now", "Value": str(datetime.now(timezone.utc))},
             {"Metric": "Backends", "Value": ", ".join(self._adapters)},
             {"Metric": "CPU", "Value": f"{psutil.cpu_percent()}%"},
             {"Metric": "Memory", "Value": f"{mem.percent}%"},
@@ -75,4 +75,4 @@ class StatusCommand(ReplyCommand):
 
 
 class StatusCommandModel(BaseCommandModel):
-    command: Type[BaseCommand] = StatusCommand
+    command: type[BaseCommand] = StatusCommand

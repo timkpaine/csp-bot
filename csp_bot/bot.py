@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from io import StringIO
 from logging import getLogger
 from types import MappingProxyType
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, ClassVar
 
 import csp
 from chatom import Channel, Message, User, mention_user_for_backend
@@ -78,23 +78,23 @@ class Bot(GatewayModule):
 
     config: BotConfig
 
-    _command_models: List[Any] = PrivateAttr(default_factory=list)
-    _commands: Dict[str, Any] = PrivateAttr(default_factory=dict)
-    _configs: Dict[Backend, Any] = PrivateAttr(default_factory=dict)
-    _adapters: Dict[Backend, Any] = PrivateAttr(default_factory=dict)
-    _connected_backends: Dict[Backend, Tuple[Any, asyncio.AbstractEventLoop]] = PrivateAttr(default_factory=dict)
+    _command_models: list[Any] = PrivateAttr(default_factory=list)
+    _commands: dict[str, Any] = PrivateAttr(default_factory=dict)
+    _configs: dict[Backend, Any] = PrivateAttr(default_factory=dict)
+    _adapters: dict[Backend, Any] = PrivateAttr(default_factory=dict)
+    _connected_backends: dict[Backend, tuple[Any, asyncio.AbstractEventLoop]] = PrivateAttr(default_factory=dict)
     _schedule_store: ScheduleStore = PrivateAttr(default_factory=lambda: ScheduleStore(InMemoryStateStore()))
-    _authorized_users: Dict[Backend, Set[str]] = PrivateAttr(default_factory=dict)
-    _bot_user_ids: Dict[Backend, str] = PrivateAttr(default_factory=dict)
-    _bot_names: Dict[Backend, str] = PrivateAttr(default_factory=dict)
+    _authorized_users: dict[Backend, set[str]] = PrivateAttr(default_factory=dict)
+    _bot_user_ids: dict[Backend, str] = PrivateAttr(default_factory=dict)
+    _bot_names: dict[Backend, str] = PrivateAttr(default_factory=dict)
     _deps: Any = PrivateAttr(default=None)
-    _thread: Optional[threading.Thread] = PrivateAttr(None)
+    _thread: threading.Thread | None = PrivateAttr(None)
     _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
-    _KNOWN_BACKENDS: Set[str] = {"discord", "slack", "symphony", "telegram"}
+    _KNOWN_BACKENDS: ClassVar[set[str]] = {"discord", "slack", "symphony", "telegram"}
 
     @staticmethod
-    def _datetime_for_now(value: Optional[datetime], now: datetime) -> Optional[datetime]:
+    def _datetime_for_now(value: datetime | None, now: datetime) -> datetime | None:
         # Persistence records use aware UTC datetimes. csp.now() is naive in
         # current runtime tests, so normalize only at the csp scheduling edge.
         if value is None:
@@ -113,7 +113,7 @@ class Bot(GatewayModule):
         """Inject a schedule store for delayed and recurring commands."""
         self._schedule_store = schedule_store
 
-    def _restore_scheduled_commands(self, now: datetime) -> List[ScheduledCommandRecord]:
+    def _restore_scheduled_commands(self, now: datetime) -> list[ScheduledCommandRecord]:
         """Return future scheduled commands that should be re-armed."""
         restored = []
         for record in self._schedule_store.records():
@@ -166,7 +166,7 @@ class Bot(GatewayModule):
             self._adapters["telegram"] = TelegramAdapter(self.config.telegram.config)
 
         # Fetch bot info for all backends at startup
-        for backend in self._adapters.keys():
+        for backend in self._adapters:
             log.info(f"Fetching bot info for {backend}...")
             self._fetch_bot_info(backend)
 
@@ -270,7 +270,7 @@ class Bot(GatewayModule):
         if not adapter:
             return
 
-        users: Set[str] = set()
+        users: set[str] = set()
         for channel_name in config.user_access_channels:
             try:
                 # Use chatom's backend to fetch channel members
@@ -342,7 +342,7 @@ class Bot(GatewayModule):
         if response.id and response.id != orig_msg_id:
             AgentCommand._sessions.update_response_id(session_key, response.id)
 
-    def _ensure_backend_connected(self, backend: str) -> Optional[Tuple[Any, asyncio.AbstractEventLoop]]:
+    def _ensure_backend_connected(self, backend: str) -> tuple[Any, asyncio.AbstractEventLoop] | None:
         """Ensure a connected backend exists for the given platform.
 
         Lazily creates and connects a backend instance that can be reused
@@ -385,7 +385,7 @@ class Bot(GatewayModule):
             loop.close()
             return None
 
-    def _resolve_channel(self, channel_identifier: str, backend: str) -> Optional[Channel]:
+    def _resolve_channel(self, channel_identifier: str, backend: str) -> Channel | None:
         """Resolve a channel name or ID to a Channel object.
 
         Uses the shared connected backend for the platform.
@@ -403,7 +403,7 @@ class Bot(GatewayModule):
 
         connected_backend, loop = result
 
-        async def _fetch() -> Optional[Channel]:
+        async def _fetch() -> Channel | None:
             log.info(f"Resolving channel '{channel_identifier}' for {backend}")
 
             # First try to fetch by name
@@ -425,7 +425,7 @@ class Bot(GatewayModule):
             log.exception(f"Error resolving channel: {channel_identifier}")
             return None
 
-    def load_commands(self, command_models: List[Any]) -> None:
+    def load_commands(self, command_models: list[Any]) -> None:
         """Load command handlers from command models and decorator registry.
 
         Supports both legacy BaseCommandModel and the new CommandModel.
@@ -436,9 +436,9 @@ class Bot(GatewayModule):
         for model in command_models:
             try:
                 command = model.command()
-            except TypeError as e:
+            except TypeError:
                 log.critical(f"Incomplete command type - implement all abstract methods: {model.command}")
-                raise e
+                raise
 
             if isinstance(command, BaseCommand):
                 command_str = command.command()
@@ -454,7 +454,7 @@ class Bot(GatewayModule):
 
             log.info(f"Registered command: /{command_str}")
             if command_str in self._commands:
-                raise Exception(f"Command already registered: {command_str}\n\t{command}\n\t{self._commands[command_str]}")
+                raise ValueError(f"Command already registered: {command_str}\n\t{command}\n\t{self._commands[command_str]}")
 
             self._commands[command_str] = runner
             self._command_models.append(model)
@@ -502,9 +502,9 @@ class Bot(GatewayModule):
 
             log.info("Loaded command entry point: %s", getattr(entry_point, "name", "<unknown>"))
 
-    def _active_backends(self) -> Set[str]:
+    def _active_backends(self) -> set[str]:
         """Return configured backends for this bot instance."""
-        active: Set[str] = set()
+        active: set[str] = set()
         if self.config.discord:
             active.add("discord")
         if self.config.slack:
@@ -513,7 +513,7 @@ class Bot(GatewayModule):
             active.add("symphony")
         return active
 
-    def _normalize_command_backends(self, command_name: str, backends: List[str]) -> List[str]:
+    def _normalize_command_backends(self, command_name: str, backends: list[str]) -> list[str]:
         """Normalize and validate declared command backends."""
         normalized = [b.lower() for b in backends]
         unknown = sorted({b for b in normalized if b not in self._KNOWN_BACKENDS})
@@ -521,7 +521,7 @@ class Bot(GatewayModule):
             raise ValueError(f"Command '{command_name}' declared unknown backends: {', '.join(unknown)}")
         return normalized
 
-    def _is_command_backend_compatible(self, command_name: str, command_runner: Any, active_backends: Set[str]) -> bool:
+    def _is_command_backend_compatible(self, command_name: str, command_runner: Any, active_backends: set[str]) -> bool:
         """Check registration-time backend compatibility for a command."""
         declared_backends = self._command_backends(command_runner)
         if not declared_backends:
@@ -544,7 +544,7 @@ class Bot(GatewayModule):
         )
         return False
 
-    def _command_backends(self, command_runner: Any) -> List[str]:
+    def _command_backends(self, command_runner: Any) -> list[str]:
         """Return supported backends for either legacy or new command types."""
         if isinstance(command_runner, BaseCommand):
             return command_runner.backends()
@@ -582,7 +582,7 @@ class Bot(GatewayModule):
         if csp.ticked(msg):
             try:
                 backend = msg.metadata.get("backend", "")
-                log.info(f"Processing incoming message from {backend}: content={repr(msg.content[:100] if msg.content else '')}")
+                log.info(f"Processing incoming message from {backend}: content={msg.content[:100] if msg.content else ''!r}")
                 is_to_bot, channel_id, text, mentions = self._is_message_to_bot(msg, backend)
                 log.info(f"is_to_bot={is_to_bot}, channel_id={channel_id}")
 
@@ -619,9 +619,9 @@ class Bot(GatewayModule):
             a_ratelimit: ts[bool] = csp.alarm(bool)
 
         with csp.state():
-            s_buffer: List[Message] = []
-            s_buffer_last: List[Message] = []
-            s_to_process: List[BotCommand] = []
+            s_buffer: list[Message] = []
+            s_buffer_last: list[Message] = []
+            s_to_process: list[BotCommand] = []
 
         with csp.start():
             csp.schedule_alarm(a_ratelimit, timedelta(seconds=self.config.ratelimit_seconds), True)
@@ -632,21 +632,20 @@ class Bot(GatewayModule):
                     csp.schedule_alarm(a_scheduled, next_run_at, record.command)
 
         # Handle scheduled command triggers
-        if csp.ticked(a_scheduled):
+        if csp.ticked(a_scheduled) and self._schedule_store.get(a_scheduled.schedule_id) is not None:
             # Removed schedules may still have an outstanding CSP alarm; the
             # store is the source of truth and acts as the tombstone check.
-            if self._schedule_store.get(a_scheduled.schedule_id) is not None:
-                s_to_process.append(a_scheduled)
+            s_to_process.append(a_scheduled)
 
-                # Reschedule recurring commands
-                if a_scheduled.schedule:
-                    now = csp.now()
-                    next_time = croniter(a_scheduled.schedule, now).get_next(datetime)
-                    if next_time >= now:
-                        self._store_scheduled_command(a_scheduled, next_time)
-                        csp.schedule_alarm(a_scheduled, next_time, a_scheduled)
-                else:
-                    self._remove_scheduled_command(a_scheduled.schedule_id)
+            # Reschedule recurring commands
+            if a_scheduled.schedule:
+                now = csp.now()
+                next_time = croniter(a_scheduled.schedule, now).get_next(datetime)
+                if next_time >= now:
+                    self._store_scheduled_command(a_scheduled, next_time)
+                    csp.schedule_alarm(a_scheduled, next_time, a_scheduled)
+            else:
+                self._remove_scheduled_command(a_scheduled.schedule_id)
 
         # Handle new commands
         if csp.ticked(cmd):
@@ -707,7 +706,7 @@ class Bot(GatewayModule):
 
             csp.schedule_alarm(a_ratelimit, timedelta(seconds=self.config.ratelimit_seconds), True)
 
-    def _is_message_to_bot(self, msg: Message, backend: str) -> Tuple[bool, str, str, List[User]]:
+    def _is_message_to_bot(self, msg: Message, backend: str) -> tuple[bool, str, str, list[User]]:
         """Check if a message is directed at the bot.
 
         Uses chatom's mention parsing to detect bot mentions.
@@ -856,10 +855,10 @@ class Bot(GatewayModule):
 
         try:
             loop.run_until_complete(_fetch())
-        except Exception as e:
-            log.warning(f"Error fetching bot info for {backend}: {e}")
+        except Exception:
+            log.exception("Error fetching bot info for %s", backend)
 
-    def _get_bot_id(self, backend: str) -> Optional[str]:
+    def _get_bot_id(self, backend: str) -> str | None:
         """Get the bot's user ID for a backend."""
         if backend in self._bot_user_ids:
             return self._bot_user_ids[backend]
@@ -868,7 +867,7 @@ class Bot(GatewayModule):
         self._fetch_bot_info(backend)
         return self._bot_user_ids.get(backend)
 
-    def _get_bot_name(self, backend: str) -> Optional[str]:
+    def _get_bot_name(self, backend: str) -> str | None:
         """Get the bot's username for a backend.
 
         First checks config for explicit bot_name, then checks cache,
@@ -907,8 +906,8 @@ class Bot(GatewayModule):
         backend: str,
         channel_id: str,
         text: str,
-        mentions: List[User],
-    ) -> Optional[Union[BotCommand, List[BotCommand]]]:
+        mentions: list[User],
+    ) -> BotCommand | list[BotCommand] | None:
         """Extract bot commands from a message.
 
         Uses chatom's entity recognition to identify mentioned users.
@@ -928,10 +927,10 @@ class Bot(GatewayModule):
             if bot_name and content.startswith(f"@{bot_name}"):
                 content = content[len(f"@{bot_name}") :].strip()
 
-            log.info(f"Extracting command from: {repr(content)}")
+            log.info(f"Extracting command from: {content!r}")
 
             # Check for command syntax (supports both / and ! prefixes)
-            if not content.startswith("/") and not content.startswith("!"):
+            if not content.startswith(("/", "!")):
                 # Check if this is a reply to an active agent session
                 session_cmd = self._check_agent_session_reply(msg, backend, channel_id)
                 if session_cmd:
@@ -942,13 +941,13 @@ class Bot(GatewayModule):
                 return self._create_help_command(msg, backend, channel_id)
 
             # Tokenize the command
-            tokens = list(reader(StringIO(content), delimiter=" ", quotechar='"', skipinitialspace=True))[0]
+            tokens = next(reader(StringIO(content), delimiter=" ", quotechar='"', skipinitialspace=True))
             if not tokens:
                 return None
 
             # Parse command and arguments (strip both / and ! prefixes)
             command_name = tokens[0].lstrip("/!").lower()
-            log.info(f"Parsed command_name: {repr(command_name)}, registered commands: {list(self._commands.keys())}")
+            log.info(f"Parsed command_name: {command_name!r}, registered commands: {list(self._commands.keys())}")
             if command_name not in self._commands:
                 log.warning(f"Unknown command: {command_name}")
                 return self._create_help_command(msg, backend, channel_id)
@@ -1030,7 +1029,7 @@ class Bot(GatewayModule):
             log.exception("Error extracting command")
             return None
 
-    def _check_agent_session_reply(self, msg: Message, backend: str, channel_id: str) -> Optional[BotCommand]:
+    def _check_agent_session_reply(self, msg: Message, backend: str, channel_id: str) -> BotCommand | None:
         """Check if the message is a reply to a bot response with an active agent session.
 
         If so, constructs a BotCommand to continue the conversation.
@@ -1105,10 +1104,10 @@ class Bot(GatewayModule):
 
     def _parse_command_args(
         self,
-        tokens: List[str],
-        mentions: List[User],
+        tokens: list[str],
+        mentions: list[User],
         backend: str,
-    ) -> Tuple[List[str], List[User], str]:
+    ) -> tuple[list[str], list[User], str]:
         """Parse command arguments, extracting tagged users and channels."""
         args = []
         target_users = []
@@ -1146,7 +1145,7 @@ class Bot(GatewayModule):
                     j = i + 1
                     while j < len(tokens):
                         next_token = tokens[j]
-                        if next_token.startswith("@") or next_token.startswith("/") or next_token.startswith("!"):
+                        if next_token.startswith(("@", "/", "!")):
                             break
                         skip_indices.add(j)
                         j += 1
@@ -1166,7 +1165,7 @@ class Bot(GatewayModule):
 
         return args, target_users, target_channel
 
-    def _create_help_command(self, msg: Message, backend: str, channel_id: str) -> BotCommand:
+    def _create_help_command(self, msg: Message, backend: str, channel_id: str) -> BotCommand | None:
         """Create a help command when no specific command is given."""
         command_runner = self._commands.get("help")
         if not command_runner:
@@ -1202,7 +1201,7 @@ class Bot(GatewayModule):
             times_run=0,
         )
 
-    def _execute_command(self, cmd: BotCommand) -> Optional[Union[Message, List[Message], BotCommand, List[BotCommand]]]:
+    def _execute_command(self, cmd: BotCommand) -> Message | list[Message] | BotCommand | list[BotCommand] | None:
         """Execute a bot command and return responses."""
         command_runner = self._commands.get(cmd.command)
         if not command_runner:
@@ -1273,7 +1272,7 @@ class Bot(GatewayModule):
         channel_id: str,
         backend: str,
         thread_id: str = "",
-        mentions: List[User] = None,
+        mentions: list[User] | None = None,
     ) -> Message:
         """Create a response message with chatom.
 

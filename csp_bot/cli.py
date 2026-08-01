@@ -12,8 +12,8 @@ log = getLogger(__name__)
 
 __all__ = (
     "load",
-    "run",
     "main",
+    "run",
 )
 
 

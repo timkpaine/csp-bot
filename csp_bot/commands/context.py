@@ -6,7 +6,7 @@ decorator-based and class-based commands receive.
 
 from __future__ import annotations
 
-from typing import Any, Generic, List, Optional, TypeVar, Union
+from typing import Any, Generic, TypeVar
 
 from chatom import Channel, Message, User
 from chatom.format import (
@@ -53,16 +53,16 @@ class CommandContext(Generic[Deps]):
     """
 
     __slots__ = (
-        "command_name",
-        "source",
-        "targets",
-        "channel",
-        "message",
         "args",
         "args_text",
         "backend",
         "bot",
+        "channel",
+        "command_name",
         "deps",
+        "message",
+        "source",
+        "targets",
     )
 
     def __init__(
@@ -70,10 +70,10 @@ class CommandContext(Generic[Deps]):
         *,
         command_name: str,
         source: User,
-        targets: List[User],
+        targets: list[User],
         channel: Channel,
         message: Message,
-        args: List[str],
+        args: list[str],
         args_text: str,
         backend: str,
         bot: BotInfo,
@@ -91,11 +91,11 @@ class CommandContext(Generic[Deps]):
         self.deps = deps
 
     @property
-    def target(self) -> Optional[User]:
+    def target(self) -> User | None:
         """First mentioned user, or None."""
         return self.targets[0] if self.targets else None
 
-    def mention(self, user: Optional[User]) -> UserMention:
+    def mention(self, user: User | None) -> UserMention:
         """Create a mention node for a user.
 
         Args:
@@ -111,7 +111,7 @@ class CommandContext(Generic[Deps]):
             display_name=getattr(user, "display_name", "") or getattr(user, "name", "") or "",
         )
 
-    def reply(self, *content: Union[TextNode, str, Table, FormattedImage, FormattedAttachment]) -> FormattedMessage:
+    def reply(self, *content: TextNode | str | Table | FormattedImage | FormattedAttachment) -> FormattedMessage:
         """Build a FormattedMessage from content nodes.
 
         Args:
@@ -134,8 +134,8 @@ class CommandContext(Generic[Deps]):
     def table(
         self,
         data: Any,
-        headers: Optional[List[str]] = None,
-        alignment: Optional[Union[str, List[str]]] = None,
+        headers: list[str] | None = None,
+        alignment: str | list[str] | None = None,
     ) -> Table:
         """Build a Table node from data.
 
@@ -171,7 +171,7 @@ class CommandContext(Generic[Deps]):
         alt: str = "",
         title: str = "",
         *,
-        data: Optional[bytes] = None,
+        data: bytes | None = None,
         filename: str = "",
         content_type: str = "",
     ) -> FormattedImage:
@@ -196,7 +196,7 @@ class CommandContext(Generic[Deps]):
         filename: str = "",
         content_type: str = "",
         *,
-        data: Optional[bytes] = None,
+        data: bytes | None = None,
     ) -> FormattedAttachment:
         """Create an attachment node.
 
