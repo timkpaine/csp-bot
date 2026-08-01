@@ -4,8 +4,8 @@ This module provides Discord-specific types and adapters through chatom.
 """
 
 __all__ = (
-    "DiscordConfig",
     "DiscordAdapter",
+    "DiscordConfig",
     "DiscordMessage",
     "DiscordUser",
 )
@@ -23,8 +23,6 @@ except ImportError:
 
     class DiscordConfig(BaseModel):
         """Placeholder when chatom.discord is not available."""
-
-        pass
 
     DiscordAdapter = None
     DiscordMessage = ChatomMessage

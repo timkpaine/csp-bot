@@ -9,7 +9,7 @@ working without any changes.
 from __future__ import annotations
 
 import logging
-from typing import Any, List
+from typing import Any
 
 from csp_bot.commands.base import BaseCommand
 from csp_bot.commands.context import CommandContext
@@ -47,7 +47,7 @@ class LegacyCommandAdapter:
         return self._command.help()
 
     @property
-    def backends(self) -> List[str]:
+    def backends(self) -> list[str]:
         return self._command.backends()
 
     def context_to_bot_command(self, ctx: CommandContext) -> BotCommand:

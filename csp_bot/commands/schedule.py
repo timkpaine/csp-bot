@@ -4,7 +4,7 @@ Allows scheduling commands for delayed or recurring execution.
 """
 
 from logging import getLogger
-from typing import TYPE_CHECKING, List, Optional, Type
+from typing import TYPE_CHECKING
 
 from chatom import Message
 from chatom.format import Bold, FormattedMessage, Table, Text
@@ -39,10 +39,10 @@ class ScheduleCommand(ReplyCommand):
         command: BotCommand,
         schedule: "ScheduleStore",
         bot_instance: "Bot",
-    ) -> Optional[BotCommand]:
+    ) -> BotCommand | None:
         log.info(f"Schedule command preexecute: {command.command}")
 
-        remove: List[int] = []
+        remove: list[int] = []
 
         if not command.args:
             command.args = ("list",)
@@ -128,4 +128,4 @@ class ScheduleCommand(ReplyCommand):
 
 
 class ScheduleCommandModel(BaseCommandModel):
-    command: Type[BaseCommand] = ScheduleCommand
+    command: type[BaseCommand] = ScheduleCommand

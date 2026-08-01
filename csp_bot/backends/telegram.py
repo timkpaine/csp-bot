@@ -4,8 +4,8 @@ This module provides Telegram-specific types and adapters through chatom.
 """
 
 __all__ = (
-    "TelegramConfig",
     "TelegramAdapter",
+    "TelegramConfig",
     "TelegramMessage",
     "TelegramUser",
 )
@@ -23,8 +23,6 @@ except ImportError:
 
     class TelegramConfig(BaseModel):
         """Placeholder when chatom.telegram is not available."""
-
-        pass
 
     TelegramAdapter = None
     TelegramMessage = ChatomMessage

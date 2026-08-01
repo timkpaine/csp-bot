@@ -5,7 +5,7 @@ Provides the CSP Gateway integration with chatom-based bot.
 
 from functools import wraps
 from logging import getLogger
-from typing import Any, List, Union
+from typing import Any
 
 from chatom import Message
 from csp import ts
@@ -25,12 +25,12 @@ from csp_bot.structs import BotCommand
 log = getLogger(__name__)
 
 __all__ = (
+    "Channels",
+    "CspBotGateway",
+    "Gateway",
     "GatewayChannels",
     "GatewayModule",
     "GatewaySettings",
-    "CspBotGateway",
-    "Channels",
-    "Gateway",
     "Module",
     "Settings",
 )
@@ -67,7 +67,7 @@ class CspBotGateway(BaseGateway):
     """CSP Bot Gateway with chatom integration."""
 
     settings: GatewaySettings = Field(default_factory=GatewaySettings)
-    commands: List[Union[BaseCommandModel, CommandModel]] = []
+    commands: list[BaseCommandModel | CommandModel] = Field(default_factory=list)
     deps: Any = None
 
     @model_validator(mode="before")
@@ -84,20 +84,20 @@ class CspBotGateway(BaseGateway):
 
     def __init__(
         self,
-        modules: List[GatewayModule] = None,
-        channels: GatewayChannels = None,
-        commands: List[Union[BaseCommandModel, CommandModel]] = None,
+        modules: list[GatewayModule] | None = None,
+        channels: GatewayChannels | None = None,
+        commands: list[BaseCommandModel | CommandModel] | None = None,
         deps: Any = None,
         *args,
         **kwargs,
     ):
         channels = channels or GatewayChannels()
         super().__init__(
+            *args,
             modules=modules,
             channels=channels,
             commands=commands,
             deps=deps,
-            *args,
             **kwargs,
         )
 

@@ -10,6 +10,7 @@ import asyncio
 import pytest
 from chatom import Channel, Message, User
 from chatom.format import Bold, FormattedMessage, Text, UserMention
+from pydantic import Field
 
 from csp_bot.commands.base import ReplyToOtherCommand
 from csp_bot.commands.context import BotInfo, CommandContext
@@ -21,18 +22,18 @@ from csp_bot.structs import BotCommand, CommandVariant
 
 def _make_ctx(**overrides) -> CommandContext:
     """Build a CommandContext with sensible defaults."""
-    defaults = dict(
-        command_name="test",
-        source=User(id="U1", name="alice"),
-        targets=[User(id="U2", name="bob")],
-        channel=Channel(id="C1", name="general"),
-        message=Message(content="/test hello", channel_id="C1"),
-        args=["hello"],
-        args_text="hello",
-        backend="slack",
-        bot=BotInfo(id="B1", name="testbot", version="0.0.1"),
-        deps=None,
-    )
+    defaults = {
+        "command_name": "test",
+        "source": User(id="U1", name="alice"),
+        "targets": [User(id="U2", name="bob")],
+        "channel": Channel(id="C1", name="general"),
+        "message": Message(content="/test hello", channel_id="C1"),
+        "args": ["hello"],
+        "args_text": "hello",
+        "backend": "slack",
+        "bot": BotInfo(id="B1", name="testbot", version="0.0.1"),
+        "deps": None,
+    }
     defaults.update(overrides)
     return CommandContext(**defaults)
 
@@ -745,7 +746,7 @@ class TestEndToEnd:
         class Thanks(Command):
             name: str = "thanks"
             help: str = "Thank someone"
-            gifts: list = ["cookie", "cake"]
+            gifts: list = Field(default_factory=lambda: ["cookie", "cake"])
 
             def execute(self, ctx):
                 return f"{ctx.mention(ctx.target)} gets a {self.gifts[0]}"
