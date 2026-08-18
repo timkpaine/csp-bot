@@ -11,7 +11,7 @@ Key features:
 - Support for Slack, Symphony, and Discord
 """
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 # Re-export chatom types for convenience
 from chatom import Channel, Message, User
