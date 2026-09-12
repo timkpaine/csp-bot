@@ -129,3 +129,118 @@ Selecting `+backend='[slack,telegram]'` merges the `slack` and `telegram` fragme
 The per-platform `config` block is the corresponding [`chatom`](https://github.com/Point72/chatom) backend config, so any field that backend supports can be set here.
 
 All of these configs live in-source under [csp_bot/config](https://github.com/Point72/csp-bot/tree/main/csp_bot/config); copy or extend them as the basis for your own.
+
+## Configure an agent model
+
+Install the agent dependencies:
+
+```bash
+pip install "csp-bot[agent]"
+```
+
+Define an agent command and its Hydra model:
+
+```python
+from typing import Type
+
+from pydantic_ai import Agent
+
+from csp_bot.commands import AgentCommand, AgentCommandModel
+
+
+class AskCommand(AgentCommand):
+  def command(self) -> str:
+    return "ask"
+
+  def name(self) -> str:
+    return "Ask"
+
+  def help(self) -> str:
+    return "Ask the configured model a question"
+
+  def build_agent(self, command):
+    toolset = self.build_toolset(command)
+    return Agent(
+      self.get_model(),
+      toolsets=[toolset] if toolset else [],
+      instructions="Answer questions using the available chat tools.",
+    )
+
+  def build_prompt(self, command) -> str:
+    return " ".join(command.args)
+
+
+class AskCommandModel(AgentCommandModel):
+  command: Type[AgentCommand] = AskCommand
+```
+
+Set `model_name` when registering the command:
+
+```yaml
+gateway:
+  commands:
+  - _target_: my_bot.AskCommandModel
+    model_name: "github-copilot:<model>"
+```
+
+`model_name` accepts PydanticAI's fully qualified model strings:
+
+| Credential source                   | Model string                    |
+| ----------------------------------- | ------------------------------- |
+| Anthropic API or configured gateway | `anthropic:<model>`             |
+| Codex login                         | `openai-codex:<model>`          |
+| GitHub Copilot token                | `github-copilot:<model>`        |
+| OpenRouter API key                  | `openrouter:<provider>/<model>` |
+
+Use `codex login` before selecting `openai-codex:`. For the other providers,
+set the environment variables documented by PydanticAI for that provider.
+Provider credentials are resolved by PydanticAI and are not stored by
+`csp-bot`.
+
+### Use the Claude Agent SDK runtime
+
+Install the separate Claude Agent SDK extra:
+
+```bash
+pip install "csp-bot[claude-agent]"
+```
+
+Inherit from `ClaudeAgentCommand` when the command should run through the
+Claude Agent SDK rather than a PydanticAI model provider:
+
+```python
+from typing import Type
+
+from csp_bot.commands import AgentCommand, AgentCommandModel, ClaudeAgentCommand
+
+
+class ClaudeAskCommand(ClaudeAgentCommand):
+  def command(self) -> str:
+    return "claude"
+
+  def name(self) -> str:
+    return "Claude"
+
+  def help(self) -> str:
+    return "Ask Claude a question"
+
+  def build_prompt(self, command) -> str:
+    return " ".join(command.args)
+
+
+class ClaudeAskCommandModel(AgentCommandModel):
+  command: Type[AgentCommand] = ClaudeAskCommand
+```
+
+Register it with a Claude model name:
+
+```yaml
+gateway:
+  commands:
+  - _target_: my_bot.ClaudeAskCommandModel
+    model_name: "claude-sonnet-4-6"
+```
+
+The Claude runtime exposes only the invocation backend's Chatom MCP tools. It
+does not enable Claude Code's file, shell, or ambient project tools. Claude
+Agent SDK authentication is resolved by the SDK in the bot process environment.

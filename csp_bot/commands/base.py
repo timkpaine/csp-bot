@@ -136,3 +136,7 @@ class BaseCommandModel(BaseModel):
     """Model for registering commands via configuration."""
 
     command: type[BaseCommand]
+
+    def create_command(self) -> BaseCommand:
+        """Create the configured command."""
+        return self.command()

@@ -53,6 +53,12 @@ dependencies = [
 [project.optional-dependencies]
 agent = [
     "chatom[agent]>=0.2.0",
+    "pydantic-ai>=2.42",
+]
+claude-agent = [
+    "chatom[agent]>=0.2.0",
+    "claude-agent-sdk>=0.2.152",
+    "pydantic-ai>=2.42",
 ]
 persistence = [
     "fsspec",
@@ -63,6 +69,7 @@ develop = [
     "chatom[agent]>=0.2.0",
     "check-dist",
     "codespell",
+    "claude-agent-sdk>=0.2.152",
     "csp-adapter-discord>=0.2,<0.3",
     "csp-adapter-slack>=0.4,<0.5",
     "csp-adapter-symphony>=0.4,<0.5",

@@ -435,7 +435,7 @@ class Bot(GatewayModule):
         active_backends = self._active_backends()
         for model in command_models:
             try:
-                command = model.command()
+                command = model.create_command()
             except TypeError:
                 log.critical(f"Incomplete command type - implement all abstract methods: {model.command}")
                 raise
@@ -1053,7 +1053,13 @@ class Bot(GatewayModule):
             return None
 
         # Look up session by the bot response ID
-        session = AgentCommand._sessions.get_by_response_id(ref_id)
+        source_id = msg.author.id if msg.author else msg.author_id or ""
+        session = AgentCommand._sessions.get_by_response_id(
+            ref_id,
+            user_id=source_id,
+            channel_id=channel_id,
+            backend=backend,
+        )
         if session is None:
             return None
 

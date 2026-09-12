@@ -1,16 +1,18 @@
 """Tests for AgentCommand base class."""
 
 import asyncio
+import socket
 import threading
 from concurrent.futures import Future
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 from chatom import Message, User
 from chatom.backend import BackendBase
 
-from csp_bot.commands.agent import AgentCommand, AgentSession, SessionStore, _run_agent
+from csp_bot.commands.agent import AgentCommand, AgentCommandModel, AgentSession, SessionStore, _run_agent
 from csp_bot.structs import BotCommand, CommandVariant
 
 
@@ -92,6 +94,197 @@ class TestSetBackends:
         assert toolset is None
 
 
+class TestGetModel:
+    def test_uses_configured_model_name_when_argument_is_omitted(self):
+        command = ConcreteAgentCommand(model_name="github-copilot:test-model")
+        resolved_model = object()
+
+        with patch("pydantic_ai.models.infer_model", return_value=resolved_model) as infer_model:
+            result = command.get_model()
+
+        assert result is resolved_model
+        infer_model.assert_called_once_with("github-copilot:test-model")
+
+    def test_subclass_can_define_default_model_name(self):
+        class CopilotAgentCommand(ConcreteAgentCommand):
+            model_name = "github-copilot:test-model"
+
+        command = CopilotAgentCommand()
+        resolved_model = object()
+
+        with patch("pydantic_ai.models.infer_model", return_value=resolved_model) as infer_model:
+            result = command.get_model()
+
+        assert result is resolved_model
+        infer_model.assert_called_once_with("github-copilot:test-model")
+
+    @pytest.mark.parametrize(
+        "model_name",
+        [
+            "anthropic:claude-sonnet-4-6",
+            "openai-codex:test-model",
+            "github-copilot:test-model",
+            "openrouter:anthropic/claude-sonnet-4-6",
+        ],
+    )
+    def test_qualified_model_uses_pydantic_ai_resolver(self, cmd, model_name):
+        resolved_model = object()
+
+        with patch("pydantic_ai.models.infer_model", return_value=resolved_model) as infer_model:
+            result = cmd.get_model(model_name)
+
+        assert result is resolved_model
+        infer_model.assert_called_once_with(model_name)
+
+    def test_qualified_model_preserves_resolver_error(self, cmd):
+        with (
+            patch("pydantic_ai.models.infer_model", side_effect=ValueError("unsupported provider")),
+            pytest.raises(ValueError, match="unsupported provider"),
+        ):
+            cmd.get_model("unknown:model")
+
+    def test_bare_claude_model_preserves_anthropic_gateway_configuration(self, cmd, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "test-token")
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://anthropic.example.test")
+        provider = object()
+        model = object()
+
+        with (
+            patch("pydantic_ai.providers.anthropic.AnthropicProvider", return_value=provider) as provider_type,
+            patch("pydantic_ai.models.anthropic.AnthropicModel", return_value=model) as model_type,
+        ):
+            result = cmd.get_model("claude-sonnet-4-6")
+
+        assert result is model
+        provider_type.assert_called_once_with(api_key="test-token", base_url="https://anthropic.example.test")
+        model_type.assert_called_once_with("claude-sonnet-4-6", provider=provider)
+
+
+class TestAgentCommandModel:
+    def test_creates_command_with_configured_model_name(self):
+        model = AgentCommandModel(command=ConcreteAgentCommand, model_name="github-copilot:test-model")
+
+        command = model.create_command()
+
+        assert isinstance(command, ConcreteAgentCommand)
+        assert command.model_name == "github-copilot:test-model"
+
+    def test_subclass_can_define_command_type(self):
+        class ConcreteAgentCommandModel(AgentCommandModel):
+            command: type[AgentCommand] = ConcreteAgentCommand
+
+        model = ConcreteAgentCommandModel(model_name="openai-codex:test-model")
+
+        command = model.create_command()
+
+        assert isinstance(command, ConcreteAgentCommand)
+        assert command.model_name == "openai-codex:test-model"
+
+
+class TestProviderConstruction:
+    @staticmethod
+    def _block_network(monkeypatch):
+        def fail_network(*args, **kwargs):
+            raise AssertionError("provider construction attempted network access")
+
+        monkeypatch.setattr(socket.socket, "connect", fail_network)
+        monkeypatch.setattr(socket, "create_connection", fail_network)
+
+    def test_codex_provider_accepts_in_memory_credentials(self, monkeypatch):
+        from pydantic_ai.models.openai_codex import OpenAICodexModel
+        from pydantic_ai.providers.openai_codex import OpenAICodexCredentials, OpenAICodexProvider
+
+        self._block_network(monkeypatch)
+        credentials = OpenAICodexCredentials(
+            access_token="codex-test-access-token",
+            refresh_token="codex-test-refresh-token",
+            account_id="codex-test-account",
+        )
+
+        provider = OpenAICodexProvider(credentials=credentials)
+        model = OpenAICodexModel("test-model", provider=provider)
+
+        assert isinstance(model, OpenAICodexModel)
+        assert "codex-test-access-token" not in repr(credentials)
+        assert "codex-test-refresh-token" not in repr(credentials)
+
+    def test_anthropic_model_constructs_without_network(self, cmd, monkeypatch):
+        from pydantic_ai.models.anthropic import AnthropicModel
+        from pydantic_ai.providers.anthropic import AnthropicProvider
+
+        self._block_network(monkeypatch)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-test-key")
+
+        model = cmd.get_model("anthropic:claude-sonnet-4-6")
+
+        assert isinstance(model, AnthropicModel)
+        assert isinstance(model._provider, AnthropicProvider)
+        assert "anthropic-test-key" not in repr(model)
+        assert "anthropic-test-key" not in repr(model._provider)
+
+    def test_copilot_model_constructs_without_network(self, cmd, monkeypatch):
+        from pydantic_ai.models.github_copilot import GitHubCopilotModel
+        from pydantic_ai.providers.github_copilot import GitHubCopilotProvider
+
+        self._block_network(monkeypatch)
+        monkeypatch.setenv("GITHUB_COPILOT_API_KEY", "copilot-test-token")
+
+        model = cmd.get_model("github-copilot:test-model")
+
+        assert isinstance(model, GitHubCopilotModel)
+        assert isinstance(model._provider, GitHubCopilotProvider)
+        assert "copilot-test-token" not in repr(model)
+        assert "copilot-test-token" not in repr(model._provider)
+
+    def test_openrouter_model_constructs_without_network(self, cmd, monkeypatch):
+        from pydantic_ai.models.openrouter import OpenRouterModel
+        from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+        self._block_network(monkeypatch)
+        monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-test-key")
+
+        model = cmd.get_model("openrouter:anthropic/claude-sonnet-4-6")
+
+        assert isinstance(model, OpenRouterModel)
+        assert isinstance(model._provider, OpenRouterProvider)
+        assert "openrouter-test-key" not in repr(model)
+        assert "openrouter-test-key" not in repr(model._provider)
+
+
+class TestProviderIndependentHarness:
+    def test_chat_tools_and_history_work_with_test_model(self, cmd, mock_backend):
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
+
+        AgentCommand.set_backends({"slack": mock_backend})
+        invocation = SimpleNamespace(
+            backend="slack",
+            channel_id="C1",
+            message=Message(channel_id="C1"),
+            source=User(id="U1", name="Test User"),
+        )
+        toolset = cmd.build_toolset(invocation)
+        model = TestModel(call_tools=[], custom_output_text="answer")
+        agent = Agent(model, toolsets=[toolset])
+
+        async def run_turns():
+            first = await agent.run("first question")
+            second = await agent.run("follow-up", message_history=first.all_messages())
+            return first, second
+
+        first, second = asyncio.run(run_turns())
+
+        assert first.output == "answer"
+        assert second.output == "answer"
+        assert len(second.all_messages()) > len(first.all_messages())
+        assert model.last_model_request_parameters is not None
+        assert {tool.name for tool in model.last_model_request_parameters.function_tools} >= {
+            "read_channel_history",
+            "lookup_user",
+        }
+
+
 class TestPreexecute:
     def test_submits_future_and_sets_delay(self, cmd, bot_command):
         with patch("csp_bot.commands.agent._executor") as mock_executor:
@@ -123,7 +316,7 @@ class TestPreexecute:
 
     def test_cleans_up_expired_sessions(self, cmd, bot_command):
         AgentCommand._sessions = SessionStore(ttl_seconds=0.01)
-        expired = AgentSession(user_id="U1", channel_id="C1", command_name="ask", bot_response_id="old-response")
+        expired = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask", bot_response_id="old-response")
         expired.last_active = datetime.now(timezone.utc) - timedelta(seconds=1)
         AgentCommand._sessions.put("old-key", expired)
 
@@ -132,7 +325,15 @@ class TestPreexecute:
             cmd.preexecute(bot_command)
 
         assert AgentCommand._sessions.get("old-key") is None
-        assert AgentCommand._sessions.get_by_response_id("old-response") is None
+        assert (
+            AgentCommand._sessions.get_by_response_id(
+                "old-response",
+                user_id="U1",
+                channel_id="C1",
+                backend="slack",
+            )
+            is None
+        )
 
 
 class TestExecute:
@@ -240,7 +441,7 @@ class TestRunAgent:
 class TestSessionStore:
     def test_put_and_get(self):
         store = SessionStore(ttl_seconds=60.0)
-        session = AgentSession(user_id="U1", channel_id="C1", command_name="ask")
+        session = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask")
         store.put("key1", session)
         assert store.get("key1") is session
 
@@ -250,41 +451,56 @@ class TestSessionStore:
 
     def test_expired_session_returns_none(self):
         store = SessionStore(ttl_seconds=0.01)
-        session = AgentSession(user_id="U1", channel_id="C1", command_name="ask")
+        session = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask")
         session.last_active = datetime.now(timezone.utc) - timedelta(seconds=1)
         store.put("key1", session)
         assert store.get("key1") is None
 
     def test_get_by_response_id(self):
         store = SessionStore(ttl_seconds=60.0)
-        session = AgentSession(user_id="U1", channel_id="C1", command_name="ask", bot_response_id="resp1")
+        session = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask", bot_response_id="resp1")
         store.put("key1", session)
-        assert store.get_by_response_id("resp1") is session
+        assert store.get_by_response_id("resp1", user_id="U1", channel_id="C1", backend="slack") is session
+
+    @pytest.mark.parametrize(
+        ("user_id", "channel_id", "backend"),
+        [
+            ("U2", "C1", "slack"),
+            ("U1", "C2", "slack"),
+            ("U1", "C1", "discord"),
+        ],
+    )
+    def test_get_by_response_id_rejects_different_session_identity(self, user_id, channel_id, backend):
+        store = SessionStore(ttl_seconds=60.0)
+        session = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask", bot_response_id="resp1")
+        store.put("key1", session)
+
+        assert store.get_by_response_id("resp1", user_id=user_id, channel_id=channel_id, backend=backend) is None
 
     def test_get_by_response_id_returns_none_for_unknown(self):
         store = SessionStore(ttl_seconds=60.0)
-        assert store.get_by_response_id("unknown") is None
+        assert store.get_by_response_id("unknown", user_id="U1", channel_id="C1", backend="slack") is None
 
     def test_update_response_id(self):
         store = SessionStore(ttl_seconds=60.0)
-        session = AgentSession(user_id="U1", channel_id="C1", command_name="ask")
+        session = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask")
         store.put("key1", session)
         store.update_response_id("key1", "new-resp-id")
-        assert store.get_by_response_id("new-resp-id") is session
+        assert store.get_by_response_id("new-resp-id", user_id="U1", channel_id="C1", backend="slack") is session
 
     def test_update_response_id_removes_old_mapping(self):
         store = SessionStore(ttl_seconds=60.0)
-        session = AgentSession(user_id="U1", channel_id="C1", command_name="ask", bot_response_id="old-id")
+        session = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask", bot_response_id="old-id")
         store.put("key1", session)
         store.update_response_id("key1", "new-id")
-        assert store.get_by_response_id("old-id") is None
-        assert store.get_by_response_id("new-id") is session
+        assert store.get_by_response_id("old-id", user_id="U1", channel_id="C1", backend="slack") is None
+        assert store.get_by_response_id("new-id", user_id="U1", channel_id="C1", backend="slack") is session
 
     def test_cleanup_expired(self):
         store = SessionStore(ttl_seconds=0.01)
-        s1 = AgentSession(user_id="U1", channel_id="C1", command_name="ask")
+        s1 = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask")
         s1.last_active = datetime.now(timezone.utc) - timedelta(seconds=1)
-        s2 = AgentSession(user_id="U2", channel_id="C2", command_name="ask")
+        s2 = AgentSession(user_id="U2", channel_id="C2", backend="slack", command_name="ask")
         store.put("key1", s1)
         store.put("key2", s2)
         removed = store.cleanup_expired()
@@ -294,17 +510,17 @@ class TestSessionStore:
 
     def test_cleanup_expired_removes_response_index(self):
         store = SessionStore(ttl_seconds=0.01)
-        expired = AgentSession(user_id="U1", channel_id="C1", command_name="ask", bot_response_id="old-response")
+        expired = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask", bot_response_id="old-response")
         expired.last_active = datetime.now(timezone.utc) - timedelta(seconds=1)
-        active = AgentSession(user_id="U2", channel_id="C2", command_name="ask", bot_response_id="new-response")
+        active = AgentSession(user_id="U2", channel_id="C2", backend="slack", command_name="ask", bot_response_id="new-response")
         store.put("old-key", expired)
         store.put("new-key", active)
 
         removed = store.cleanup_expired()
 
         assert removed == 1
-        assert store.get_by_response_id("old-response") is None
-        assert store.get_by_response_id("new-response") is active
+        assert store.get_by_response_id("old-response", user_id="U1", channel_id="C1", backend="slack") is None
+        assert store.get_by_response_id("new-response", user_id="U2", channel_id="C2", backend="slack") is active
 
 
 def _sample_history():
@@ -326,6 +542,7 @@ class TestAgentSessionSerialization:
         session = AgentSession(
             user_id="U1",
             channel_id="C1",
+            backend="slack",
             command_name="ask",
             message_history=_sample_history(),
             bot_response_id="resp1",
@@ -335,12 +552,15 @@ class TestAgentSessionSerialization:
         json.dumps(data)
         assert data["schema_version"] == AgentSession.SCHEMA_VERSION
         assert data["user_id"] == "U1"
+        assert data["backend"] == "slack"
+        assert data["history_format"] == "pydantic-ai"
         assert data["bot_response_id"] == "resp1"
 
     def test_round_trip_preserves_fields(self):
         original = AgentSession(
             user_id="U1",
             channel_id="C1",
+            backend="slack",
             command_name="ask",
             message_history=_sample_history(),
             bot_response_id="resp1",
@@ -348,6 +568,7 @@ class TestAgentSessionSerialization:
         restored = AgentSession.from_dict(original.to_dict())
         assert restored.user_id == original.user_id
         assert restored.channel_id == original.channel_id
+        assert restored.backend == original.backend
         assert restored.command_name == original.command_name
         assert restored.bot_response_id == original.bot_response_id
         assert len(restored.message_history) == len(original.message_history)
@@ -360,6 +581,7 @@ class TestAgentSessionSerialization:
         original = AgentSession(
             user_id="U1",
             channel_id="C1",
+            backend="slack",
             command_name="ask",
             message_history=_sample_history(),
         )
@@ -368,10 +590,26 @@ class TestAgentSessionSerialization:
         assert len(restored.message_history) == 2
 
     def test_from_dict_rejects_unknown_schema_version(self):
-        data = AgentSession(user_id="U1", channel_id="C1", command_name="ask").to_dict()
+        data = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask").to_dict()
         data["schema_version"] = 999
         with pytest.raises(ValueError, match="schema version"):
             AgentSession.from_dict(data)
+
+    def test_claude_session_state_round_trips_through_json(self):
+        import json
+
+        original = AgentSession(
+            user_id="U1",
+            channel_id="C1",
+            backend="slack",
+            command_name="ask",
+            message_history=[{"type": "claude-session", "session_id": "session-1"}],
+        )
+
+        restored = AgentSession.from_dict(json.loads(json.dumps(original.to_dict())))
+
+        assert restored.message_history == original.message_history
+        assert restored.to_dict()["history_format"] == "opaque"
 
 
 class TestSessionStorePersistence:
@@ -386,6 +624,7 @@ class TestSessionStorePersistence:
         session = AgentSession(
             user_id="U1",
             channel_id="C1",
+            backend="slack",
             command_name="ask",
             message_history=_sample_history(),
             bot_response_id="resp1",
@@ -398,7 +637,7 @@ class TestSessionStorePersistence:
         assert loaded is not None
         assert loaded.user_id == "U1"
         assert len(loaded.message_history) == 2
-        assert store.get_by_response_id("resp1").store_key == session.store_key
+        assert store.get_by_response_id("resp1", user_id="U1", channel_id="C1", backend="slack").store_key == session.store_key
 
     def test_survives_store_handoff(self):
         """A fresh SessionStore over the same backend sees prior sessions."""
@@ -410,6 +649,7 @@ class TestSessionStorePersistence:
         session = AgentSession(
             user_id="U1",
             channel_id="C1",
+            backend="slack",
             command_name="ask",
             message_history=_sample_history(),
         )
@@ -418,7 +658,7 @@ class TestSessionStorePersistence:
 
         # Simulate a restart: brand-new SessionStore over the same storage.
         reopened = SessionStore(ttl_seconds=900.0, store=backend)
-        resumed = reopened.get_by_response_id("bot-msg-1")
+        resumed = reopened.get_by_response_id("bot-msg-1", user_id="U1", channel_id="C1", backend="slack")
         assert resumed is not None
         assert resumed.command_name == "ask"
         assert len(resumed.message_history) == 2
@@ -526,7 +766,7 @@ class TestSessionIntegration:
 
     def test_session_key_format(self, cmd, bot_command):
         key = cmd._session_key(bot_command)
-        assert key == "test-agent:U123:C456"
+        assert key == "test-agent:slack:U123:C456"
 
     def test_response_metadata_includes_session_key(self, cmd, bot_command):
         """Execute should include agent_session_key in response metadata."""
@@ -543,7 +783,7 @@ class TestSessionIntegration:
         result = cmd.execute(bot_command)
 
         assert isinstance(result, Message)
-        assert result.metadata["agent_session_key"] == "test-agent:U123:C456"
+        assert result.metadata["agent_session_key"] == "test-agent:slack:U123:C456"
 
 
 class TestMultimodalPrompt:

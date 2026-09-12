@@ -158,3 +158,7 @@ class CommandModel(BaseModel):
     """
 
     command: type[Command] = Command
+
+    def create_command(self) -> Command:
+        """Create the configured command."""
+        return self.command()

@@ -28,21 +28,20 @@ from chatom import Channel, Message
 from chatom.backend import BackendBase
 from chatom.format import Format, convert_format
 
-from csp_bot.commands.base import BaseCommand, ReplyCommand
+from csp_bot.commands.base import BaseCommand, BaseCommandModel, ReplyCommand
 from csp_bot.persistence import InMemoryStateStore, StateStore
 from csp_bot.structs import BotCommand
 
 try:
     from chatom.agent import BackendToolset
     from chatom.agent.toolset import AccessPolicy
-    from pydantic_ai import Agent
-    from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
+    from pydantic_ai.messages import ModelMessagesTypeAdapter
 except ImportError as e:
     raise ImportError("AgentCommand requires the 'agent' extra. Install with: pip install csp-bot[agent]") from e
 
 log = logging.getLogger(__name__)
 
-__all__ = ("AgentCommand",)
+__all__ = ("AgentCommand", "AgentCommandModel")
 
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent-cmd")
 
@@ -56,19 +55,20 @@ class AgentSession:
     """Tracks a multi-turn conversation between a user and an agent command."""
 
     #: Bumped whenever the serialized layout in :meth:`to_dict` changes.
-    SCHEMA_VERSION: ClassVar[int] = 1
+    SCHEMA_VERSION: ClassVar[int] = 2
 
     user_id: str
     channel_id: str
+    backend: str
     command_name: str
-    message_history: list[ModelMessage] = field(default_factory=list)
+    message_history: list[Any] = field(default_factory=list)
     last_active: datetime = field(default_factory=_utc_now)
     bot_response_id: str | None = None  # ID of last bot message (for reply matching)
 
     @property
     def store_key(self) -> str:
-        """Deterministic key for this session: command:user:channel."""
-        return f"{self.command_name}:{self.user_id}:{self.channel_id}"
+        """Deterministic key for this session: command:backend:user:channel."""
+        return f"{self.command_name}:{self.backend}:{self.user_id}:{self.channel_id}"
 
     def touch(self) -> None:
         self.last_active = _utc_now()
@@ -82,12 +82,17 @@ class AgentSession:
         The pydantic-ai conversation history is serialized via
         :data:`ModelMessagesTypeAdapter` so it round-trips across processes.
         """
+        opaque_history = all(isinstance(item, dict) and item.get("type") == "claude-session" for item in self.message_history)
+        history_format = "opaque" if self.message_history and opaque_history else "pydantic-ai"
+        history = self.message_history if history_format == "opaque" else ModelMessagesTypeAdapter.dump_python(self.message_history, mode="json")
         return {
             "schema_version": self.SCHEMA_VERSION,
             "user_id": self.user_id,
             "channel_id": self.channel_id,
+            "backend": self.backend,
             "command_name": self.command_name,
-            "message_history": ModelMessagesTypeAdapter.dump_python(self.message_history, mode="json"),
+            "history_format": history_format,
+            "message_history": history,
             "last_active": self.last_active.isoformat(),
             "bot_response_id": self.bot_response_id,
         }
@@ -96,14 +101,23 @@ class AgentSession:
     def from_dict(cls, data: dict[str, Any]) -> AgentSession:
         """Reconstruct a session from :meth:`to_dict` output."""
         version = data.get("schema_version")
-        if version != cls.SCHEMA_VERSION:
-            raise ValueError(f"Unsupported AgentSession schema version: {version!r} (expected {cls.SCHEMA_VERSION})")
+        if version not in (1, cls.SCHEMA_VERSION):
+            raise ValueError(f"Unsupported AgentSession schema version: {version!r} (expected 1 or {cls.SCHEMA_VERSION})")
         last_active = data.get("last_active")
+        history_format = data.get("history_format", "pydantic-ai")
+        raw_history = data.get("message_history") or []
+        if history_format == "opaque":
+            message_history = list(raw_history)
+        elif history_format == "pydantic-ai":
+            message_history = list(ModelMessagesTypeAdapter.validate_python(raw_history))
+        else:
+            raise ValueError(f"Unsupported agent history format: {history_format!r}")
         return cls(
             user_id=data["user_id"],
             channel_id=data["channel_id"],
+            backend=data.get("backend", ""),
             command_name=data["command_name"],
-            message_history=list(ModelMessagesTypeAdapter.validate_python(data.get("message_history") or [])),
+            message_history=message_history,
             last_active=datetime.fromisoformat(last_active) if last_active else _utc_now(),
             bot_response_id=data.get("bot_response_id"),
         )
@@ -138,7 +152,14 @@ class SessionStore:
                 return None
             return session
 
-    def get_by_response_id(self, response_id: str) -> AgentSession | None:
+    def get_by_response_id(
+        self,
+        response_id: str,
+        *,
+        user_id: str,
+        channel_id: str,
+        backend: str,
+    ) -> AgentSession | None:
         """Look up a session by the bot's response message ID (for replies)."""
         with self._lock:
             key = self.store.get(self.response_namespace, response_id)
@@ -147,6 +168,8 @@ class SessionStore:
             session = self._load(key)
             if session and session.is_expired(self._ttl):
                 self._remove_session(key, session)
+                return None
+            if session and (session.user_id != user_id or session.channel_id != channel_id or session.backend != backend):
                 return None
             return session
 
@@ -198,10 +221,10 @@ class SessionStore:
 
 
 def _run_agent(
-    agent: Agent,
+    agent: Any,
     prompt: str | Sequence[Any],
     loop: asyncio.AbstractEventLoop | None = None,
-    message_history: Sequence[ModelMessage] | None = None,
+    message_history: Sequence[Any] | None = None,
 ) -> Any:
     """Run an agent on an event loop (for use in thread pool).
 
@@ -243,6 +266,8 @@ class AgentCommand(ReplyCommand):
     Example::
 
         class AskCommand(AgentCommand):
+            model_name = "github-copilot:claude-haiku-4.5"
+
             def command(self): return "ask"
             def name(self): return "Ask"
             def help(self): return "/ask <question> — Ask the AI (reply to continue)"
@@ -250,7 +275,7 @@ class AgentCommand(ReplyCommand):
             def build_agent(self, command):
                 toolset = self.build_toolset(command)
                 return Agent(
-                    "anthropic:claude-sonnet-4-6",
+                    self.get_model(),
                     toolsets=[toolset] if toolset else [],
                     instructions="You are a helpful assistant.",
                 )
@@ -264,6 +289,7 @@ class AgentCommand(ReplyCommand):
     _futures: ClassVar[dict[str, Future]] = {}
     _sessions: ClassVar[SessionStore] = SessionStore(ttl_seconds=900.0)
 
+    model_name: str = "claude-sonnet-4-6"
     # Configurable delay between polling checks (seconds)
     poll_interval: int = 2
     # Maximum time to wait for agent completion (seconds)
@@ -301,7 +327,9 @@ class AgentCommand(ReplyCommand):
     ]
 
     def __init__(self, *args, **kwargs):
-        pass
+        model_name = kwargs.pop("model_name", None)
+        if model_name is not None:
+            self.model_name = model_name
 
     @classmethod
     def set_backends(
@@ -329,8 +357,8 @@ class AgentCommand(ReplyCommand):
         cls._sessions = SessionStore(ttl_seconds=ttl, store=store)
 
     @abstractmethod
-    def build_agent(self, command: BotCommand) -> Agent:
-        """Return the pydantic-ai Agent to run for this command."""
+    def build_agent(self, command: BotCommand) -> Any:
+        """Return the agent or runner to use for this command."""
         ...
 
     @abstractmethod
@@ -392,12 +420,20 @@ class AgentCommand(ReplyCommand):
             block_dm_reads=True,
         )
 
-    def get_model(self, model_name: str = "claude-sonnet-4-6") -> Any:
+    def get_model(self, model_name: str | None = None) -> Any:
         """Return a model instance configured from environment variables.
 
-        Checks ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL
-        to construct a properly-configured provider.
+        Fully qualified model names are resolved by PydanticAI. Bare model names
+        retain the Anthropic gateway configuration used by existing commands.
         """
+        if model_name is None:
+            model_name = self.model_name
+
+        if ":" in model_name:
+            from pydantic_ai.models import infer_model
+
+            return infer_model(model_name)
+
         from pydantic_ai.models.anthropic import AnthropicModel
         from pydantic_ai.providers.anthropic import AnthropicProvider
 
@@ -416,8 +452,8 @@ class AgentCommand(ReplyCommand):
         return messageml
 
     def _session_key(self, command: BotCommand) -> str:
-        """Key for session lookup: command:user:channel."""
-        return f"{self.command()}:{command.source.id}:{command.channel_id}"
+        """Key for session lookup: command:backend:user:channel."""
+        return f"{self.command()}:{command.backend}:{command.source.id}:{command.channel_id}"
 
     def _get_session(self, command: BotCommand) -> AgentSession | None:
         """Find an existing session — by reply reference or by user+channel."""
@@ -425,7 +461,12 @@ class AgentCommand(ReplyCommand):
         msg = command.message
         reply_to_id = getattr(msg, "reply_to_id", None) or (msg.reference.message_id if getattr(msg, "reference", None) else None)
         if reply_to_id:
-            session = self._sessions.get_by_response_id(reply_to_id)
+            session = self._sessions.get_by_response_id(
+                reply_to_id,
+                user_id=command.source.id,
+                channel_id=command.channel_id,
+                backend=command.backend,
+            )
             if session:
                 session.touch()
                 self._sessions.put(session.store_key, session)
@@ -446,6 +487,7 @@ class AgentCommand(ReplyCommand):
             user_id=command.source.id,
             channel_id=command.channel_id,
             command_name=self.command(),
+            backend=command.backend,
         )
         self._sessions.put(self._session_key(command), session)
         return session
@@ -736,3 +778,14 @@ class AgentCommand(ReplyCommand):
         future replies to that message can be routed back to this session.
         """
         self._sessions.update_response_id(session_key, response_message_id)
+
+
+class AgentCommandModel(BaseCommandModel):
+    """Model for registering an agent command with model configuration."""
+
+    command: type[AgentCommand]
+    model_name: str = "claude-sonnet-4-6"
+
+    def create_command(self) -> AgentCommand:
+        """Create the configured agent command."""
+        return self.command(model_name=self.model_name)
