@@ -1,5 +1,6 @@
 import asyncio
 import json
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -48,7 +49,7 @@ def _toolset(access_policy: AccessPolicy | None = None) -> BackendToolset:
 
 
 def test_build_claude_tools_preserves_definitions_and_execution():
-    tools = build_claude_tools(_toolset())
+    tools = asyncio.run(build_claude_tools(_toolset()))
     tools_by_name = {tool.name: tool for tool in tools}
 
     assert "read_channel_history" in tools_by_name
@@ -62,8 +63,21 @@ def test_build_claude_tools_preserves_definitions_and_execution():
     assert payload["name"] == "Alice"
 
 
+def test_build_claude_tools_supports_chatom_0_2_toolset_api():
+    toolset = _toolset()
+
+    class Chatom02Toolset:
+        id = toolset.id
+        get_tools = toolset.get_tools
+        call_tool = toolset.call_tool
+
+    tools = asyncio.run(build_claude_tools(cast(BackendToolset, Chatom02Toolset())))
+
+    assert "lookup_user" in {tool.name for tool in tools}
+
+
 def test_build_claude_mcp_server_returns_sdk_server():
-    server = build_claude_mcp_server(_toolset())
+    server = asyncio.run(build_claude_mcp_server(_toolset()))
 
     assert server["type"] == "sdk"
     assert server["name"] == "chatom-mock"
@@ -75,7 +89,7 @@ def test_claude_tool_execution_preserves_access_policy():
         invoking_channel_id="C1",
         restrict_to_invoking_channel=True,
     )
-    tools = build_claude_tools(_toolset(policy))
+    tools = asyncio.run(build_claude_tools(_toolset(policy)))
     read_history = next(tool for tool in tools if tool.name == "read_channel_history")
 
     result = asyncio.run(read_history.handler({"channel": {"id": "C2"}, "limit": 10}))
@@ -85,10 +99,12 @@ def test_claude_tool_execution_preserves_access_policy():
 
 
 def test_build_claude_options_exposes_only_chatom_tools():
-    options = build_claude_options(
-        _toolset(),
-        model="claude-sonnet-4-6",
-        resume="session-id",
+    options = asyncio.run(
+        build_claude_options(
+            _toolset(),
+            model="claude-sonnet-4-6",
+            resume="session-id",
+        )
     )
 
     assert options.tools == []

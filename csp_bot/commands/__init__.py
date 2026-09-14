@@ -32,15 +32,6 @@ from .legacy import LegacyCommandAdapter
 from .schedule import ScheduleCommand, ScheduleCommandModel
 from .status import StatusCommand, StatusCommandModel
 
-_agent_exports = ()
-try:
-    from .agent import AgentCommand, AgentCommandModel
-    from .claude_agent import ClaudeAgentCommand
-
-    _agent_exports = ("AgentCommand", "AgentCommandModel", "ClaudeAgentCommand")
-except ImportError:
-    pass
-
 __all__ = (
     "BaseCommand",
     "BaseCommandModel",
@@ -68,4 +59,12 @@ __all__ = (
     "execute_command_func",
     "get_registered_commands",
     "mention_user",
-) + _agent_exports
+)
+
+try:
+    from .agent import AgentCommand, AgentCommandModel
+    from .claude_agent import ClaudeAgentCommand
+
+    __all__ += ("AgentCommand", "AgentCommandModel", "ClaudeAgentCommand")
+except ImportError:
+    pass

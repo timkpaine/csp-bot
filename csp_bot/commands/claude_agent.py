@@ -2,7 +2,7 @@ import base64
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from chatom.agent import BackendToolset
 
@@ -53,7 +53,7 @@ class ClaudeAgentRunner:
                 session_id = state.get("session_id")
 
         final_result = None
-        options = build_claude_options(
+        options = await build_claude_options(
             self._toolset,
             model=self._model,
             resume=session_id,
@@ -125,9 +125,14 @@ def _claude_prompt(prompt: str | Sequence[Any]) -> Any:
     return message_stream()
 
 
-def _handler(toolset: BackendToolset, name: str):
+def _handler(toolset: BackendToolset, name: str, toolset_tool: Any = None):
     async def call(tool_args: dict[str, Any]) -> dict[str, Any]:
-        result = await toolset.call(name, tool_args)
+        call_tool = getattr(toolset, "call", None)
+        if call_tool is not None:
+            result = await call_tool(name, tool_args)
+        else:
+            validated_args = toolset_tool.args_validator.validate_python(tool_args)
+            result = await toolset.call_tool(name, validated_args, cast(Any, None), toolset_tool)
         return {
             "content": [
                 {
@@ -140,47 +145,60 @@ def _handler(toolset: BackendToolset, name: str):
     return call
 
 
-def build_claude_tools(toolset: BackendToolset) -> list[Any]:
+async def build_claude_tools(toolset: BackendToolset) -> list[Any]:
     """Convert a Chatom backend toolset to Claude SDK MCP tools."""
     from claude_agent_sdk import tool
 
+    tool_definitions = getattr(toolset, "tool_definitions", None)
+    if tool_definitions is not None:
+        definitions = [(definition, None) for definition in tool_definitions().values()]
+    else:
+        toolset_tools = await toolset.get_tools(cast(Any, None))
+        definitions = [(toolset_tool.tool_def, toolset_tool) for toolset_tool in toolset_tools.values()]
+
     tools = []
-    for definition in toolset.tool_definitions().values():
+    for definition, toolset_tool in definitions:
         tools.append(
             tool(
                 definition.name,
                 definition.description or definition.name,
                 definition.parameters_json_schema,
-            )(_handler(toolset, definition.name))
+            )(_handler(toolset, definition.name, toolset_tool))
         )
     return tools
 
 
-def build_claude_mcp_server(toolset: BackendToolset) -> Any:
+async def build_claude_mcp_server(toolset: BackendToolset) -> Any:
     """Build an in-process Claude SDK MCP server for a Chatom backend."""
     from claude_agent_sdk import create_sdk_mcp_server
 
     return create_sdk_mcp_server(
         name=toolset.id or "chatom",
-        tools=build_claude_tools(toolset),
+        tools=await build_claude_tools(toolset),
     )
 
 
-def build_claude_options(
+async def build_claude_options(
     toolset: BackendToolset,
     *,
     model: str | None = None,
     resume: str | None = None,
 ) -> Any:
     """Configure Claude to use only the supplied Chatom tools."""
-    from claude_agent_sdk import ClaudeAgentOptions
+    from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server
 
     server_name = toolset.id or "chatom"
-    allowed_tools = [f"mcp__{server_name}__{name}" for name in toolset.tool_definitions()]
+    tools = await build_claude_tools(toolset)
+    allowed_tools = [f"mcp__{server_name}__{tool.name}" for tool in tools]
     return ClaudeAgentOptions(
         tools=[],
         allowed_tools=allowed_tools,
-        mcp_servers={server_name: build_claude_mcp_server(toolset)},
+        mcp_servers={
+            server_name: create_sdk_mcp_server(
+                name=server_name,
+                tools=tools,
+            )
+        },
         strict_mcp_config=True,
         setting_sources=[],
         model=model,
