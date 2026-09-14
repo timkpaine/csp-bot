@@ -429,6 +429,21 @@ class TestRegistrationTimeBackendPolicy:
 
         assert "model_slack_only" not in bot_with_symphony._commands
 
+    def test_load_commands_uses_model_factory(self, bot_with_symphony):
+        class FactoryCommand(Command):
+            name: str = "factory_command"
+
+            def execute(self, ctx):
+                return "ok"
+
+        class FactoryModel:
+            def create_command(self):
+                return FactoryCommand()
+
+        bot_with_symphony.load_commands([FactoryModel()])
+
+        assert isinstance(bot_with_symphony._commands["factory_command"], FactoryCommand)
+
 
 class TestEntryPointCommandDiscovery:
     """Tests for plugin command discovery through Python entry points."""
@@ -926,6 +941,37 @@ class TestBotInfoCaching:
 
 
 # Direct Message Detection Tests
+
+
+class TestAgentSessionReplyIsolation:
+    def test_reply_from_different_user_does_not_resume_session(self, bot_with_symphony, monkeypatch):
+        from chatom.base.message import MessageReference
+
+        from csp_bot.commands.agent import AgentCommand, AgentSession, SessionStore
+
+        sessions = SessionStore(ttl_seconds=60.0)
+        sessions.put(
+            "ask:slack:U1:C1",
+            AgentSession(
+                user_id="U1",
+                channel_id="C1",
+                backend="slack",
+                command_name="ask",
+                bot_response_id="response-1",
+            ),
+        )
+        monkeypatch.setattr(AgentCommand, "_sessions", sessions)
+        message = Message(
+            id="reply-1",
+            content="continue",
+            author=User(id="U2", name="Other User"),
+            channel_id="C1",
+            reference=MessageReference(message_id="response-1"),
+        )
+
+        result = bot_with_symphony._check_agent_session_reply(message, "slack", "C1")
+
+        assert result is None
 
 
 class TestDirectMessageDetection:

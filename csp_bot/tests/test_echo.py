@@ -128,3 +128,10 @@ class TestEchoCommandModel:
         """Test that the model can be instantiated."""
         model = EchoCommandModel()
         assert model.command == EchoCommand
+
+    def test_model_creates_command(self):
+        model = EchoCommandModel()
+
+        command = model.create_command()
+
+        assert isinstance(command, EchoCommand)

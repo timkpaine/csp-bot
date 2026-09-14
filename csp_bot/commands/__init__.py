@@ -32,13 +32,7 @@ from .legacy import LegacyCommandAdapter
 from .schedule import ScheduleCommand, ScheduleCommandModel
 from .status import StatusCommand, StatusCommandModel
 
-try:
-    from .agent import AgentCommand
-except ImportError:
-    pass
-
 __all__ = (
-    "AgentCommand",
     "BaseCommand",
     "BaseCommandModel",
     "BotInfo",
@@ -66,3 +60,11 @@ __all__ = (
     "get_registered_commands",
     "mention_user",
 )
+
+try:
+    from .agent import AgentCommand, AgentCommandModel
+    from .claude_agent import ClaudeAgentCommand
+
+    __all__ += ("AgentCommand", "AgentCommandModel", "ClaudeAgentCommand")
+except ImportError:
+    pass

@@ -15,7 +15,7 @@ from pydantic import Field
 from csp_bot.commands.base import ReplyToOtherCommand
 from csp_bot.commands.context import BotInfo, CommandContext
 from csp_bot.commands.executor import _coerce_response, execute_command_func
-from csp_bot.commands.framework import Command, clear_registry, command, get_registered_commands
+from csp_bot.commands.framework import Command, CommandModel, clear_registry, command, get_registered_commands
 from csp_bot.commands.legacy import LegacyCommandAdapter
 from csp_bot.structs import BotCommand, CommandVariant
 
@@ -189,6 +189,16 @@ class TestCommandClass:
         ctx = _make_ctx()
         with pytest.raises(NotImplementedError):
             cmd.execute(ctx)
+
+    def test_model_creates_configured_command(self):
+        class MyCommand(Command):
+            name: str = "my-command"
+
+        model = CommandModel(command=MyCommand)
+
+        command_instance = model.create_command()
+
+        assert isinstance(command_instance, MyCommand)
 
 
 class TestExecutorSync:
