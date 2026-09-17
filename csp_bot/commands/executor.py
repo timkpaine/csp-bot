@@ -200,7 +200,7 @@ def _run_async_function(
         future = asyncio.run_coroutine_threadsafe(fn(ctx), loop)
         result = future.result(timeout=timeout)
         return [_coerce_response(result, backend)]
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.error(f"Async command timed out after {timeout}s")
         raise
     except Exception:
@@ -258,7 +258,7 @@ def _run_async_generator(
             loop,
         )
         return future.result(timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.error(f"Async generator command timed out after {timeout}s")
         raise
     except Exception:

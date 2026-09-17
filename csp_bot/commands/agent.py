@@ -21,7 +21,7 @@ from abc import abstractmethod
 from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar
 
 from chatom import Channel, Message
@@ -47,7 +47,7 @@ _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent-cmd")
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass
