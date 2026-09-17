@@ -4,7 +4,7 @@ import asyncio
 import socket
 import threading
 from concurrent.futures import Future
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -59,7 +59,7 @@ def bot_command():
         backend="slack",
         variant=CommandVariant.REPLY,
         message=Message(id="msg1", content="/test-agent summarize this"),
-        delay=datetime.now(timezone.utc),
+        delay=datetime.now(UTC),
         schedule="",
         times_run=0,
     )
@@ -294,7 +294,7 @@ class TestPreexecute:
             result = cmd.preexecute(bot_command)
 
             assert mock_executor.submit.called
-            assert result.delay.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc) - timedelta(seconds=5)
+            assert result.delay.replace(tzinfo=UTC) > datetime.now(UTC) - timedelta(seconds=5)
             # Future should be stored
             assert len(AgentCommand._futures) == 1
 
@@ -317,7 +317,7 @@ class TestPreexecute:
     def test_cleans_up_expired_sessions(self, cmd, bot_command):
         AgentCommand._sessions = SessionStore(ttl_seconds=0.01)
         expired = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask", bot_response_id="old-response")
-        expired.last_active = datetime.now(timezone.utc) - timedelta(seconds=1)
+        expired.last_active = datetime.now(UTC) - timedelta(seconds=1)
         AgentCommand._sessions.put("old-key", expired)
 
         with patch("csp_bot.commands.agent._executor") as mock_executor:
@@ -452,7 +452,7 @@ class TestSessionStore:
     def test_expired_session_returns_none(self):
         store = SessionStore(ttl_seconds=0.01)
         session = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask")
-        session.last_active = datetime.now(timezone.utc) - timedelta(seconds=1)
+        session.last_active = datetime.now(UTC) - timedelta(seconds=1)
         store.put("key1", session)
         assert store.get("key1") is None
 
@@ -499,7 +499,7 @@ class TestSessionStore:
     def test_cleanup_expired(self):
         store = SessionStore(ttl_seconds=0.01)
         s1 = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask")
-        s1.last_active = datetime.now(timezone.utc) - timedelta(seconds=1)
+        s1.last_active = datetime.now(UTC) - timedelta(seconds=1)
         s2 = AgentSession(user_id="U2", channel_id="C2", backend="slack", command_name="ask")
         store.put("key1", s1)
         store.put("key2", s2)
@@ -511,7 +511,7 @@ class TestSessionStore:
     def test_cleanup_expired_removes_response_index(self):
         store = SessionStore(ttl_seconds=0.01)
         expired = AgentSession(user_id="U1", channel_id="C1", backend="slack", command_name="ask", bot_response_id="old-response")
-        expired.last_active = datetime.now(timezone.utc) - timedelta(seconds=1)
+        expired.last_active = datetime.now(UTC) - timedelta(seconds=1)
         active = AgentSession(user_id="U2", channel_id="C2", backend="slack", command_name="ask", bot_response_id="new-response")
         store.put("old-key", expired)
         store.put("new-key", active)
@@ -754,7 +754,7 @@ class TestSessionIntegration:
             backend="slack",
             variant=CommandVariant.REPLY,
             message=reply_msg,
-            delay=datetime.now(timezone.utc),
+            delay=datetime.now(UTC),
             schedule="",
             times_run=0,
         )
@@ -809,7 +809,7 @@ class TestMultimodalPrompt:
             backend=backend_name,
             variant=CommandVariant.REPLY,
             message=msg,
-            delay=datetime.now(timezone.utc),
+            delay=datetime.now(UTC),
             schedule="",
             times_run=0,
         )
@@ -924,7 +924,7 @@ class TestChannelContextNote:
             backend="symphony",
             variant=CommandVariant.REPLY,
             message=Message(id="m", content="hi", channel=Channel(id="ORIGIN", name="the-room")),
-            delay=datetime.now(timezone.utc),
+            delay=datetime.now(UTC),
             schedule="",
             times_run=0,
         )
@@ -943,7 +943,7 @@ class TestChannelContextNote:
             backend="slack",
             variant=CommandVariant.REPLY,
             message=Message(id="m", content="hi"),
-            delay=datetime.now(timezone.utc),
+            delay=datetime.now(UTC),
             schedule="",
             times_run=0,
         )

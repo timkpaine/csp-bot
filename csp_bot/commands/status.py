@@ -3,7 +3,7 @@
 Displays system and bot status information using FormattedMessage.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from getpass import getuser
 from logging import getLogger
 from socket import gethostname
@@ -52,7 +52,7 @@ class StatusCommand(ReplyCommand):
         proc = psutil.Process()
 
         rows = [
-            {"Metric": "Now", "Value": str(datetime.now(timezone.utc))},
+            {"Metric": "Now", "Value": str(datetime.now(UTC))},
             {"Metric": "Backends", "Value": ", ".join(self._adapters)},
             {"Metric": "CPU", "Value": f"{psutil.cpu_percent()}%"},
             {"Metric": "Memory", "Value": f"{mem.percent}%"},

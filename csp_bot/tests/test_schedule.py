@@ -1,6 +1,6 @@
 """Tests for schedule command persistence integration."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from chatom import Message, User
 
@@ -21,7 +21,7 @@ def _make_command(command: str = "echo", message_id: str = "msg1") -> BotCommand
         backend="slack",
         variant=CommandVariant.REPLY,
         message=Message(id=message_id, content=f"/{command} hello"),
-        delay=datetime.now(timezone.utc) + timedelta(minutes=5),
+        delay=datetime.now(UTC) + timedelta(minutes=5),
         schedule="",
         times_run=0,
     )
@@ -79,7 +79,7 @@ def test_bot_set_state_store_injects_existing_schedule_records():
 
 def test_bot_restore_scheduled_commands_skips_past_records():
     bot = Bot(config=BotConfig())
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     past = _make_command(message_id="past")
     future = _make_command(message_id="future")
     bot._schedule_store.put(past, schedule_id="past", next_run_at=now - timedelta(minutes=1))
@@ -95,7 +95,7 @@ def test_bot_reschedules_recurring_command_with_same_schedule_id():
     command = _make_command(command="echo", message_id="recurring")
     command.schedule = "*/5 * * * *"
     command.schedule_id = "schedule-1"
-    first_time = datetime.now(timezone.utc) + timedelta(minutes=5)
+    first_time = datetime.now(UTC) + timedelta(minutes=5)
     second_time = first_time + timedelta(minutes=5)
 
     first_record = bot._store_scheduled_command(command, first_time)

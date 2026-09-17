@@ -10,7 +10,7 @@ import threading
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pickle import HIGHEST_PROTOCOL, dumps, loads
 from typing import Any, Protocol
 from urllib.parse import quote, unquote
@@ -28,19 +28,19 @@ __all__ = (
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _to_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _sort_datetime(value: datetime | None) -> datetime:
-    return _to_utc(value) or datetime.max.replace(tzinfo=timezone.utc)
+    return _to_utc(value) or datetime.max.replace(tzinfo=UTC)
 
 
 @dataclass(frozen=True)

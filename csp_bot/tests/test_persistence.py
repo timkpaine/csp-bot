@@ -1,6 +1,6 @@
 """Tests for bot runtime persistence helpers."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from chatom import Message, User
 
@@ -19,7 +19,7 @@ def _make_command(command: str = "echo", message_id: str = "msg1") -> BotCommand
         backend="slack",
         variant=CommandVariant.REPLY,
         message=Message(id=message_id, content=f"/{command} hello"),
-        delay=datetime.now(timezone.utc) + timedelta(minutes=5),
+        delay=datetime.now(UTC) + timedelta(minutes=5),
         schedule="",
         times_run=0,
     )
@@ -27,7 +27,7 @@ def _make_command(command: str = "echo", message_id: str = "msg1") -> BotCommand
 
 class TestInMemoryStateStore:
     def test_stored_record_expiry_boundaries(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         assert StoredRecord("namespace", "never", "value", now, now).is_expired(now) is False
         assert StoredRecord("namespace", "future", "value", now, now, now + timedelta(seconds=1)).is_expired(now) is False
@@ -141,7 +141,7 @@ class TestScheduleStore:
         assert record.command.command == command.command
         assert record.command.message.id == command.message.id
         assert record.command.schedule_id == "schedule-1"
-        assert record.next_run_at == command.delay.replace(tzinfo=timezone.utc)
+        assert record.next_run_at == command.delay.replace(tzinfo=UTC)
 
     def test_generated_ids_allow_same_command_name(self):
         store = ScheduleStore(InMemoryStateStore())
@@ -173,7 +173,7 @@ class TestScheduleStore:
     def test_next_run_override(self):
         store = ScheduleStore(InMemoryStateStore())
         command = _make_command()
-        next_run_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        next_run_at = datetime.now(UTC) + timedelta(hours=1)
 
         record = store.put(command, schedule_id="schedule-1", next_run_at=next_run_at)
 
