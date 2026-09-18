@@ -63,7 +63,7 @@ class BotMessage(GatewayStruct):
     backend: str
     """Target backend platform."""
 
-    mentions: tuple[str]
+    mentions: tuple[str, ...]
     """User IDs to mention in the message."""
 
     formatted: object  # FormattedMessage, but can't use pydantic in Struct
@@ -120,13 +120,13 @@ class BotCommand(GatewayStruct):
     command: str
     """The command name (without leading /)."""
 
-    args: tuple[str]
+    args: tuple[str, ...]
     """Command arguments as parsed tokens."""
 
     source: User
     """The user who issued the command."""
 
-    targets: tuple[User]
+    targets: tuple[User, ...]
     """Users mentioned/tagged in the command."""
 
     channel_id: str
