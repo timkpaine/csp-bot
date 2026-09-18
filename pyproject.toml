@@ -12,7 +12,7 @@ authors = [
 description = "Reactive chat bot framework"
 readme = "README.md"
 license = { text = "Apache-2.0" }
-version = "2.0.1"
+version = "2.0.2"
 requires-python = ">=3.11"
 keywords = [
     "csp",
@@ -96,7 +96,7 @@ Repository = "https://github.com/Point72/csp-bot"
 Homepage = "https://github.com/Point72/csp-bot"
 
 [tool.bumpversion]
-current_version = "2.0.1"
+current_version = "2.0.2"
 commit = true
 tag = true
 commit_args = "-s"
